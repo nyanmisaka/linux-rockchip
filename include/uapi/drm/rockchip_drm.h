@@ -37,7 +37,7 @@ enum drm_rockchip_gem_mem_type {
 	/* keep kmap for cma buffer or alloc kmap for other type memory */
 	ROCKCHIP_BO_ALLOC_KMAP	= 1 << 4,
 	ROCKCHIP_BO_MASK	= ROCKCHIP_BO_CONTIG | ROCKCHIP_BO_CACHABLE |
-				ROCKCHIP_BO_WC | ROCKCHIP_BO_SECURE | ROCKCHIP_BO_ALLOC_KMAP,
+				ROCKCHIP_BO_WC | ROCKCHIP_BO_SECURE | ROCKCHIP_BO_ALLOC_KMAP, /* NOT UPSTREAM Collabora */
 };
 
 /**
