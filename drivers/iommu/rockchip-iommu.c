@@ -86,6 +86,7 @@ struct rk_iommu_domain {
 	dma_addr_t dt_dma;
 	spinlock_t iommus_lock; /* lock for iommus list */
 	spinlock_t dt_lock; /* lock for modifying page directory table */
+	bool shootdown_entire;
 
 	struct iommu_domain domain;
 };
@@ -115,6 +116,7 @@ struct rk_iommu {
 	struct list_head node; /* entry in rk_iommu_domain.iommus */
 	struct iommu_domain *domain; /* domain to which iommu is attached */
 	bool iommu_enabled;
+	bool shootdown_entire;
 };
 
 struct rk_iommudata {
@@ -810,7 +812,9 @@ static int rk_iommu_map_iova(struct rk_iommu_domain *rk_domain, u32 *pte_addr,
 	 * We only zap the first and last iova, since only they could have
 	 * dte or pte shared with an existing mapping.
 	 */
-	rk_iommu_zap_iova_first_last(rk_domain, iova, size);
+	/* Do not zap tlb cache line if shootdown_entire set */
+	if (!rk_domain->shootdown_entire)
+		rk_iommu_zap_iova_first_last(rk_domain, iova, size);
 
 	return 0;
 unwind:
@@ -1058,6 +1062,7 @@ static int rk_iommu_identity_attach(struct iommu_domain *identity_domain,
 	list_del_init(&iommu->node);
 	spin_unlock_irqrestore(&rk_domain->iommus_lock, flags);
 
+	rk_domain->shootdown_entire = iommu->shootdown_entire;
 	ret = pm_runtime_get_if_in_use(iommu->dev);
 	WARN_ON_ONCE(ret < 0);
 	if (ret > 0) {
@@ -1336,6 +1341,9 @@ static int rk_iommu_probe(struct platform_device *pdev)
 
 	iommu->reset_disabled = device_property_read_bool(dev,
 					"rockchip,disable-mmu-reset");
+
+	iommu->shootdown_entire = device_property_read_bool(dev,
+					"rockchip,shootdown-entire");
 
 	iommu->num_clocks = ARRAY_SIZE(rk_iommu_clocks);
 	iommu->clocks = devm_kcalloc(iommu->dev, iommu->num_clocks,
