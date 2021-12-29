@@ -86,4 +86,5 @@ int rockchip_gem_prime_end_cpu_access_partial(struct drm_gem_object *obj,
 					      unsigned int offset,
 					      unsigned int len);
 
+void rockchip_gem_get_ddr_info(void);
 #endif /* _ROCKCHIP_DRM_GEM_H */
