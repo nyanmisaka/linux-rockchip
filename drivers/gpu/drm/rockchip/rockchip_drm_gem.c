@@ -587,7 +587,8 @@ static const struct drm_gem_object_funcs rockchip_gem_object_funcs = {
 };
 
 static struct rockchip_gem_object *
-	rockchip_gem_alloc_object(struct drm_device *drm, unsigned int size)
+rockchip_gem_alloc_object(struct drm_device *drm, unsigned int size,
+			  unsigned int flags)
 {
 	struct address_space *mapping;
 	struct rockchip_gem_object *rk_obj;
@@ -598,6 +599,10 @@ static struct rockchip_gem_object *
 #else
 	gfp_t gfp_mask = GFP_HIGHUSER | __GFP_RECLAIMABLE;
 #endif
+
+	if (flags & ROCKCHIP_BO_DMA32)
+		gfp_mask |= __GFP_DMA32;
+
 	size = round_up(size, PAGE_SIZE);
 
 	rk_obj = kzalloc(sizeof(*rk_obj), GFP_KERNEL);
@@ -623,7 +628,7 @@ rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
 	struct rockchip_gem_object *rk_obj;
 	int ret;
 
-	rk_obj = rockchip_gem_alloc_object(drm, size);
+	rk_obj = rockchip_gem_alloc_object(drm, size, flags);
 	if (IS_ERR(rk_obj))
 		return rk_obj;
 	rk_obj->flags = flags;
@@ -834,7 +839,7 @@ rockchip_gem_prime_import_sg_table(struct drm_device *drm,
 	struct rockchip_gem_object *rk_obj;
 	int ret;
 
-	rk_obj = rockchip_gem_alloc_object(drm, attach->dmabuf->size);
+	rk_obj = rockchip_gem_alloc_object(drm, attach->dmabuf->size, 0);
 	if (IS_ERR(rk_obj))
 		return ERR_CAST(rk_obj);
 
