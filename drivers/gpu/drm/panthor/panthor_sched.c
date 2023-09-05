@@ -2567,7 +2567,7 @@ queue_run_job(struct drm_sched_job *sched_job)
 	struct panthor_device *ptdev = group->ptdev;
 	struct panthor_scheduler *sched = ptdev->scheduler;
 	u32 ringbuf_size = queue->ringbuf.bo->base.base.size;
-	u32 ringbuf_insert = queue->iface.input->insert % ringbuf_size;
+	u32 ringbuf_insert = queue->iface.input->insert & (ringbuf_size - 1);
 	u64 addr_reg = ptdev->csif_info.cs_reg_count -
 		       ptdev->csif_info.unpreserved_cs_reg_count;
 	u64 val_reg = addr_reg + 2;
@@ -2751,7 +2751,8 @@ group_create_queue(struct panthor_group *group,
 	if (args->pad[0] || args->pad[1] || args->pad[2])
 		return ERR_PTR(-EINVAL);
 
-	if (!IS_ALIGNED(args->ringbuf_size, PAGE_SIZE) || args->ringbuf_size > SZ_64K)
+	if (args->ringbuf_size < SZ_4K || args->ringbuf_size > SZ_64K ||
+	    !is_power_of_2(args->ringbuf_size))
 		return ERR_PTR(-EINVAL);
 
 	if (args->priority > CSF_MAX_QUEUE_PRIO)
