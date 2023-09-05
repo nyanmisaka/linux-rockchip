@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0 or MIT
 /* Copyright 2023 Collabora ltd. */
 
+#ifdef CONFIG_ARM_ARCH_TIMER
+#include <asm/arch_timer.h>
+#endif
+
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/firmware.h>
