@@ -52,6 +52,8 @@ extern "C" {
  *
  * File offset for all MMIO regions being exposed to userspace. Don't use
  * this value directly, use DRM_PANTHOR_USER_<name>_OFFSET values instead.
+ * pgoffset passed to mmap2() is an unsigned long, which forces us to use a
+ * different offset on 32-bit and 64-bit systems.
  *
  * .. c:macro:: DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET
  *
@@ -63,7 +65,11 @@ extern "C" {
  * and allow direct mapping of this MMIO region so we can avoid the
  * user <-> kernel round-trip.
  */
-#define DRM_PANTHOR_USER_MMIO_OFFSET		(0x1ull << 56)
+#define DRM_PANTHOR_USER_MMIO_OFFSET_32BIT	(1ull << 43)
+#define DRM_PANTHOR_USER_MMIO_OFFSET_64BIT	(1ull << 56)
+#define DRM_PANTHOR_USER_MMIO_OFFSET		(sizeof(unsigned long) < 8 ? \
+						 DRM_PANTHOR_USER_MMIO_OFFSET_32BIT : \
+						 DRM_PANTHOR_USER_MMIO_OFFSET_64BIT)
 #define DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET	(DRM_PANTHOR_USER_MMIO_OFFSET | 0)
 
 /**
