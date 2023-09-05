@@ -278,6 +278,9 @@ struct panthor_vm {
 	/** @pgtbl_ops: Page table operations. */
 	struct io_pgtable_ops *pgtbl_ops;
 
+	/** @root_page_table: Stores the root page table pointer. */
+	void *root_page_table;
+
 	/**
 	 * @op_lock: Lock used to serialize operations on a VM.
 	 *
@@ -426,18 +429,22 @@ static void *alloc_pt(void *cookie, size_t size, gfp_t gfp)
 	struct panthor_vm *vm = cookie;
 	void *page;
 
+	/* Allocation of the root page table happening during init. */
+	if (unlikely(!vm->pgtbl_ops)) {
+		struct page *p;
+
+		drm_WARN_ON(&vm->ptdev->base, vm->op_ctx);
+		p = alloc_pages_node(dev_to_node(vm->ptdev->base.dev), gfp | __GFP_ZERO, get_order(size));
+		page = p ? page_address(p) : NULL;
+		vm->root_page_table = page;
+		goto out;
+	}
+
 	/* We're not supposed to have anything bigger than 4k here, because we picked a
 	 * 4k granule size at init time.
 	 */
 	if (drm_WARN_ON(&vm->ptdev->base, size != SZ_4K))
 		return NULL;
-
-	/* Allocation of the root page table happening during init. */
-	if (!vm->pgtbl_ops) {
-		drm_WARN_ON(&vm->ptdev->base, vm->op_ctx);
-		page = kmem_cache_alloc(pt_cache, gfp);
-		goto out;
-	}
 
 	/* We must have some op_ctx attached to the VM and it must have at least one
 	 * free page.
@@ -472,6 +479,11 @@ out:
 static void free_pt(void *cookie, void *data, size_t size)
 {
 	struct panthor_vm *vm = cookie;
+
+	if (unlikely(vm->root_page_table == data)) {
+		free_pages((unsigned long)data, get_order(size));
+		return;
+	}
 
 	if (drm_WARN_ON(&vm->ptdev->base, size != SZ_4K))
 		return;
@@ -856,8 +868,8 @@ panthor_vm_map_pages(struct panthor_vm *vm, u64 iova, int prot,
 			size -= len;
 		}
 
-		drm_dbg(&ptdev->base, "map: as=%d, iova=%llx, paddr=%llx, len=%zx",
-			vm->as.id, iova, paddr, len);
+		drm_dbg(&ptdev->base, "map: as=%d, iova=%llx, paddr=%pad, len=%zx",
+			vm->as.id, iova, &paddr, len);
 
 		while (len) {
 			size_t pgcount, mapped = 0;
@@ -1983,6 +1995,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 {
 	u32 va_bits = GPU_MMU_FEATURES_VA_BITS(ptdev->gpu_info.mmu_features);
 	u32 pa_bits = GPU_MMU_FEATURES_PA_BITS(ptdev->gpu_info.mmu_features);
+	u64 max_va = 1ull << min_t(u32, va_bits, sizeof(unsigned long) * 8);
 	struct drm_gpu_scheduler *sched;
 	struct io_pgtable_cfg pgtbl_cfg;
 	u64 mair, min_va, va_range;
@@ -2005,7 +2018,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 		va_range = SZ_4G;
 	} else {
 		min_va = 0;
-		va_range = (1ull << va_bits);
+		va_range = max_va;
 
 		/* If the auto_va_range is zero, we reserve half of the VA
 		 * space for kernel stuff.
