@@ -287,7 +287,7 @@ static vm_fault_t panthor_mmio_vm_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	struct panthor_device *ptdev = vma->vm_private_data;
-	u64 id = vma->vm_pgoff << PAGE_SHIFT;
+	u64 id = (u64)vma->vm_pgoff << PAGE_SHIFT;
 	unsigned long pfn;
 	pgprot_t pgprot;
 	vm_fault_t ret;
@@ -300,7 +300,7 @@ static vm_fault_t panthor_mmio_vm_fault(struct vm_fault *vmf)
 	mutex_lock(&ptdev->pm.lock);
 	active = ptdev->pm.state == PANTHOR_DEVICE_PM_STATE_ACTIVE;
 
-	switch (id) {
+	switch (panthor_device_mmio_offset(id)) {
 	case DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET:
 		if (active)
 			pfn = __phys_to_pfn(ptdev->phys_addr + CSF_GPU_LATEST_FLUSH_ID);
@@ -331,9 +331,9 @@ static const struct vm_operations_struct panthor_mmio_vm_ops = {
 
 int panthor_device_mmap_io(struct panthor_device *ptdev, struct vm_area_struct *vma)
 {
-	u64 id = vma->vm_pgoff << PAGE_SHIFT;
+	u64 id = (u64)vma->vm_pgoff << PAGE_SHIFT;
 
-	switch (id) {
+	switch (panthor_device_mmio_offset(id)) {
 	case DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET:
 		if (vma->vm_end - vma->vm_start != PAGE_SIZE ||
 		    (vma->vm_flags & (VM_WRITE | VM_EXEC)))
