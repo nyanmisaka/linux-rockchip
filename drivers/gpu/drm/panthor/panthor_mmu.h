@@ -23,8 +23,8 @@ void panthor_mmu_suspend(struct panthor_device *ptdev);
 void panthor_mmu_resume(struct panthor_device *ptdev);
 
 int panthor_vm_map_bo_range(struct panthor_vm *vm, struct panthor_gem_object *bo,
-			    u64 offset, size_t size, u64 va, u32 flags);
-int panthor_vm_unmap_range(struct panthor_vm *vm, u64 va, size_t size);
+			    u64 offset, u64 size, u64 va, u32 flags);
+int panthor_vm_unmap_range(struct panthor_vm *vm, u64 va, u64 size);
 struct panthor_gem_object *
 panthor_vm_get_bo_for_va(struct panthor_vm *vm, u64 va, u64 *bo_offset);
 
@@ -57,7 +57,7 @@ int panthor_vm_pool_create_vm(struct panthor_device *ptdev, struct panthor_vm_po
 int panthor_vm_pool_destroy_vm(struct panthor_vm_pool *pool, u32 handle);
 struct panthor_vm *panthor_vm_pool_get_vm(struct panthor_vm_pool *pool, u32 handle);
 
-struct drm_mm_node *panthor_vm_alloc_va(struct panthor_vm *vm, size_t size);
+struct drm_mm_node *panthor_vm_alloc_va(struct panthor_vm *vm, u64 size);
 void panthor_vm_free_va(struct panthor_vm *vm, struct drm_mm_node *mm_node);
 
 int panthor_vm_bind_exec_sync_op(struct drm_file *file,

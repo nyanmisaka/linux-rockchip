@@ -809,13 +809,13 @@ static int panthor_vm_flush_range(struct panthor_vm *vm, u64 iova, u64 size)
 	return ret;
 }
 
-static int panthor_vm_unmap_pages(struct panthor_vm *vm, u64 iova, size_t size)
+static int panthor_vm_unmap_pages(struct panthor_vm *vm, u64 iova, u64 size)
 {
 	struct panthor_device *ptdev = vm->ptdev;
 	struct io_pgtable_ops *ops = vm->pgtbl_ops;
-	size_t offset = 0;
+	u64 offset = 0;
 
-	drm_dbg(&ptdev->base, "unmap: as=%d, iova=%llx, len=%zx", vm->as.id, iova, size);
+	drm_dbg(&ptdev->base, "unmap: as=%d, iova=%llx, len=%llx", vm->as.id, iova, size);
 
 	while (offset < size) {
 		size_t unmapped_sz = 0, pgcount;
@@ -839,7 +839,7 @@ static int panthor_vm_unmap_pages(struct panthor_vm *vm, u64 iova, size_t size)
 
 static int
 panthor_vm_map_pages(struct panthor_vm *vm, u64 iova, int prot,
-		     struct sg_table *sgt, u64 offset, ssize_t size)
+		     struct sg_table *sgt, u64 offset, u64 size)
 {
 	struct panthor_device *ptdev = vm->ptdev;
 	unsigned int count;
@@ -934,7 +934,7 @@ static int flags_to_prot(u32 flags)
  * Return: A valid pointer on success, and ERR_PTR() otherwise.
  */
 struct drm_mm_node *
-panthor_vm_alloc_va(struct panthor_vm *vm, size_t size)
+panthor_vm_alloc_va(struct panthor_vm *vm, u64 size)
 {
 	struct drm_mm_node *mm_node;
 	int ret;
@@ -1044,7 +1044,7 @@ static int panthor_vm_prepare_map_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 					 struct panthor_vm *vm,
 					 struct panthor_gem_object *bo,
 					 u64 offset,
-					 size_t size, u64 va,
+					 u64 size, u64 va,
 					 u32 flags)
 {
 	struct sg_table *sgt = NULL;
@@ -1150,7 +1150,7 @@ err_cleanup:
 
 static int panthor_vm_prepare_unmap_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 					   struct panthor_vm *vm,
-					   u64 va, size_t size)
+					   u64 va, u64 size)
 {
 	u32 pt_count = 0;
 	int ret;
@@ -2293,7 +2293,7 @@ int panthor_vm_bind_exec_sync_op(struct drm_file *file,
  * Return: 0 on success, a negative error code otherwise.
  */
 int panthor_vm_map_bo_range(struct panthor_vm *vm, struct panthor_gem_object *bo,
-			    u64 offset, size_t size, u64 va, u32 flags)
+			    u64 offset, u64 size, u64 va, u32 flags)
 {
 	struct panthor_vm_op_ctx op_ctx;
 	int ret;
@@ -2319,7 +2319,7 @@ int panthor_vm_map_bo_range(struct panthor_vm *vm, struct panthor_gem_object *bo
  *
  * Return: 0 on success, a negative error code otherwise.
  */
-int panthor_vm_unmap_range(struct panthor_vm *vm, u64 va, size_t size)
+int panthor_vm_unmap_range(struct panthor_vm *vm, u64 va, u64 size)
 {
 	struct panthor_vm_op_ctx op_ctx;
 	int ret;
