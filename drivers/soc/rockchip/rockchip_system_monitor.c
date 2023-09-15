@@ -1016,6 +1016,11 @@ rockchip_system_monitor_wide_temp_init(struct monitor_dev_info *info)
 		info->is_low_temp = true;
 	}
 
+	if (!system_monitor->tz) {
+		dev_err(info->dev, "thermal zone is NULL\n");
+		return;
+	}
+
 	ret = thermal_zone_get_temp(system_monitor->tz, &temp);
 	if (ret || temp == THERMAL_TEMP_INVALID) {
 		dev_err(info->dev,
@@ -1172,6 +1177,11 @@ rockchip_system_monitor_register(struct device *dev,
 
 	if (!devp)
 		return ERR_PTR(-EINVAL);
+
+	if (!devp->check_rate_volt) {
+		dev_warn(dev, "using default check_rate_volt\n");
+		devp->check_rate_volt = rockchip_monitor_check_rate_volt;
+	}
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
