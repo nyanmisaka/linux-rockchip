@@ -81,7 +81,7 @@ static void panthor_device_reset_cleanup(struct drm_device *ddev, void *data)
 static void panthor_device_reset_work(struct work_struct *work)
 {
 	struct panthor_device *ptdev = container_of(work, struct panthor_device, reset.work);
-	int ret, cookie;
+	int ret = 0, cookie;
 
 	if (!drm_dev_enter(&ptdev->base, &cookie))
 		return;
