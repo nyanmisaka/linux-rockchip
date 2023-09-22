@@ -7,6 +7,7 @@
 
 #include <drm/panthor_drm.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_exec.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_managed.h>
 #include <drm/gpu_scheduler.h>
@@ -3068,6 +3069,13 @@ void panthor_job_put(struct drm_sched_job *sched_job)
 		kref_put(&job->refcount, job_release);
 }
 
+struct panthor_vm *panthor_job_vm(struct drm_sched_job *sched_job)
+{
+	struct panthor_job *job = container_of(sched_job, struct panthor_job, base);
+
+	return job->group->vm;
+}
+
 struct drm_sched_job *
 panthor_job_create(struct panthor_file *pfile,
 		   u16 group_handle,
@@ -3136,26 +3144,17 @@ err_put_job:
 	return ERR_PTR(ret);
 }
 
-int panthor_job_prepare_resvs(struct drm_exec *exec,
-			      struct drm_sched_job *sched_job)
+void panthor_job_update_resvs(struct drm_exec *exec, struct drm_sched_job *sched_job)
 {
 	struct panthor_job *job = container_of(sched_job, struct panthor_job, base);
 
-	return panthor_vm_prepare_mapped_bos_resvs(exec, job->group->vm);
-}
-
-int panthor_job_add_resvs_deps(struct drm_sched_job *sched_job)
-{
-	struct panthor_job *job = container_of(sched_job, struct panthor_job, base);
-
-	return panthor_vm_add_bos_resvs_deps_to_job(job->group->vm, sched_job);
-}
-
-void panthor_job_update_resvs(struct drm_sched_job *sched_job)
-{
-	struct panthor_job *job = container_of(sched_job, struct panthor_job, base);
-
-	panthor_vm_add_job_fence_to_bos_resvs(job->group->vm, sched_job);
+	/* Still not sure why we want USAGE_WRITE for external objects, since I
+	 * was assuming this would be handled through explicit syncs being imported
+	 * to external BOs with DMA_BUF_IOCTL_IMPORT_SYNC_FILE, but other drivers
+	 * seem to pass DMA_RESV_USAGE_WRITE, so there must be a good reason.
+	 */
+	panthor_vm_update_resvs(job->group->vm, exec, &sched_job->s_fence->finished,
+				DMA_RESV_USAGE_BOOKKEEP, DMA_RESV_USAGE_WRITE);
 }
 
 void panthor_sched_unplug(struct panthor_device *ptdev)

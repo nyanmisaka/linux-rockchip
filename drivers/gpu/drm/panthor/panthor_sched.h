@@ -28,11 +28,9 @@ panthor_job_create(struct panthor_file *pfile,
 		   u16 group_handle,
 		   const struct drm_panthor_queue_submit *qsubmit);
 struct drm_sched_job *panthor_job_get(struct drm_sched_job *job);
+struct panthor_vm *panthor_job_vm(struct drm_sched_job *sched_job);
 void panthor_job_put(struct drm_sched_job *job);
-int panthor_job_prepare_resvs(struct drm_exec *exec,
-			      struct drm_sched_job *job);
-int panthor_job_add_resvs_deps(struct drm_sched_job *job);
-void panthor_job_update_resvs(struct drm_sched_job *job);
+void panthor_job_update_resvs(struct drm_exec *exec, struct drm_sched_job *job);
 
 int panthor_group_pool_create(struct panthor_file *pfile);
 void panthor_group_pool_destroy(struct panthor_file *pfile);
