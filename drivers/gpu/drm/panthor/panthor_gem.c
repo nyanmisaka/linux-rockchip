@@ -20,7 +20,12 @@ static void panthor_gem_free_object(struct drm_gem_object *obj)
 	if (drm_WARN_ON(obj->dev, bo->va_node))
 		panthor_vm_free_va(bo->exclusive_vm, bo->va_node);
 
-	panthor_vm_put(bo->exclusive_vm);
+	if (bo->exclusive_vm) {
+		panthor_vm_put(bo->exclusive_vm);
+		bo->exclusive_vm = NULL;
+		bo->base.base.resv = &bo->base.base._resv;
+	}
+
 	drm_gem_free_mmap_offset(&bo->base.base);
 	mutex_destroy(&bo->gpuva_list_lock);
 	drm_gem_shmem_free(&bo->base);
