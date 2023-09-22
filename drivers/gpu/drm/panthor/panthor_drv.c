@@ -654,22 +654,16 @@ panthor_submit_ctx_collect_jobs_signal_ops(struct panthor_submit_ctx *ctx)
 /**
  * panthor_submit_ctx_add_deps_and_arm_jobs() - Add jobs dependencies and arm jobs
  * @ctx: Submit context.
- * @add_resvs_deps: Callback used to add implicit job dependencies.
  *
- * Must be called after panthor_submit_ctx_prepare_resvs().
+ * Must be called after the resv preparation has been taken care of.
  *
  * Return: 0 on success, a negative error code otherwise.
  */
 static int
-panthor_submit_ctx_add_deps_and_arm_jobs(struct panthor_submit_ctx *ctx,
-					 int (*add_resvs_deps)(struct drm_sched_job *))
+panthor_submit_ctx_add_deps_and_arm_jobs(struct panthor_submit_ctx *ctx)
 {
 	for (u32 i = 0; i < ctx->job_count; i++) {
 		int ret;
-
-		ret = add_resvs_deps(ctx->jobs[i].job);
-		if (ret)
-			return ret;
 
 		ret = panthor_submit_ctx_add_sync_deps_to_job(ctx, i);
 		if (ret)
@@ -686,41 +680,17 @@ panthor_submit_ctx_add_deps_and_arm_jobs(struct panthor_submit_ctx *ctx,
 }
 
 /**
- * panthor_submit_ctx_prepare_resvs() - Lock/prepare reservation objects for all jobs.
- * @ctx: Submit context.
- * @prep_resvs: Callback used to prepare reservation objects associated to a job.
- *
- * Return: 0 on success, a negative error code otherwise.
- */
-static int
-panthor_submit_ctx_prepare_resvs(struct panthor_submit_ctx *ctx,
-				 int (*prep_resvs)(struct drm_exec *, struct drm_sched_job *))
-{
-	drm_exec_until_all_locked(&ctx->exec) {
-		for (u32 i = 0; i < ctx->job_count; i++) {
-			int ret = prep_resvs(&ctx->exec, ctx->jobs[i].job);
-
-			drm_exec_retry_on_contention(&ctx->exec);
-			if (ret)
-				return ret;
-		}
-	}
-
-	return 0;
-}
-
-/**
  * panthor_submit_ctx_push_jobs() - Push jobs to their scheduling entities.
  * @ctx: Submit context.
- * @upd_resvs: Callback used to update reservation objects that were prepared in
- * panthor_submit_ctx_prepare_resvs().
+ * @upd_resvs: Callback used to update reservation objects that were previously
+ * preapred.
  */
 static void
 panthor_submit_ctx_push_jobs(struct panthor_submit_ctx *ctx,
-			     void (*upd_resvs)(struct drm_sched_job *))
+			     void (*upd_resvs)(struct drm_exec *, struct drm_sched_job *))
 {
 	for (u32 i = 0; i < ctx->job_count; i++) {
-		upd_resvs(ctx->jobs[i].job);
+		upd_resvs(&ctx->exec, ctx->jobs[i].job);
 		drm_sched_entity_push_job(ctx->jobs[i].job);
 
 		/* Job is owned by the scheduler now. */
@@ -987,16 +957,25 @@ static int panthor_ioctl_group_submit(struct drm_device *ddev, void *data,
 	 *    array, otherwise we might miss dependencies, or point to an
 	 *    outdated fence.
 	 */
-	ret = panthor_submit_ctx_prepare_resvs(&ctx, panthor_job_prepare_resvs);
-	if (ret)
-		goto out_cleanup_submit_ctx;
+	if (args->queue_submits.count > 0) {
+		/* All jobs target the same group, so they also point to the same VM. */
+		struct panthor_vm *vm = panthor_job_vm(ctx.jobs[0].job);
+
+		drm_exec_until_all_locked(&ctx.exec) {
+			ret = panthor_vm_prepare_mapped_bos_resvs(&ctx.exec, vm,
+								  args->queue_submits.count);
+		}
+
+		if (ret)
+			goto out_cleanup_submit_ctx;
+	}
 
 	/*
 	 * Now that resvs are locked/prepared, we can iterate over each job to
 	 * add the dependencies, arm the job fence, register the job fence to
 	 * the signal array.
 	 */
-	ret = panthor_submit_ctx_add_deps_and_arm_jobs(&ctx, panthor_job_add_resvs_deps);
+	ret = panthor_submit_ctx_add_deps_and_arm_jobs(&ctx);
 	if (ret)
 		goto out_cleanup_submit_ctx;
 
@@ -1178,11 +1157,17 @@ static int panthor_ioctl_vm_bind_async(struct drm_device *ddev,
 	if (ret)
 		goto out_cleanup_submit_ctx;
 
-	ret = panthor_submit_ctx_prepare_resvs(&ctx, panthor_vm_bind_job_prepare_resvs);
-	if (ret)
-		goto out_cleanup_submit_ctx;
+	/* Prepare reservation objects for each VM_BIND job. */
+	drm_exec_until_all_locked(&ctx.exec) {
+		for (u32 i = 0; i < ctx.job_count; i++) {
+			ret = panthor_vm_bind_job_prepare_resvs(&ctx.exec, ctx.jobs[i].job);
+			drm_exec_retry_on_contention(&ctx.exec);
+			if (ret)
+				goto out_cleanup_submit_ctx;
+		}
+	}
 
-	ret = panthor_submit_ctx_add_deps_and_arm_jobs(&ctx, panthor_vm_bind_job_add_resvs_deps);
+	ret = panthor_submit_ctx_add_deps_and_arm_jobs(&ctx);
 	if (ret)
 		goto out_cleanup_submit_ctx;
 
