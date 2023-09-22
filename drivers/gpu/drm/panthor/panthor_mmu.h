@@ -5,6 +5,8 @@
 #ifndef __PANTHOR_MMU_H__
 #define __PANTHOR_MMU_H__
 
+#include <linux/dma-resv.h>
+
 struct drm_exec;
 struct drm_sched_job;
 struct panthor_gem_object;
@@ -39,7 +41,8 @@ struct panthor_vm *panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 				     u64 auto_va_start, u64 auto_va_range);
 
 int panthor_vm_prepare_mapped_bos_resvs(struct drm_exec *exec,
-					struct panthor_vm *vm);
+					struct panthor_vm *vm,
+					u32 slot_count);
 int panthor_vm_add_bos_resvs_deps_to_job(struct panthor_vm *vm,
 					 struct drm_sched_job *job);
 void panthor_vm_add_job_fence_to_bos_resvs(struct panthor_vm *vm,
@@ -68,8 +71,12 @@ panthor_vm_bind_job_create(struct drm_file *file,
 void panthor_vm_bind_job_put(struct drm_sched_job *job);
 int panthor_vm_bind_job_prepare_resvs(struct drm_exec *exec,
 				      struct drm_sched_job *job);
-int panthor_vm_bind_job_add_resvs_deps(struct drm_sched_job *job);
-void panthor_vm_bind_job_update_resvs(struct drm_sched_job *job);
+void panthor_vm_bind_job_update_resvs(struct drm_exec *exec, struct drm_sched_job *job);
+
+void panthor_vm_update_resvs(struct panthor_vm *vm, struct drm_exec *exec,
+			     struct dma_fence *fence,
+			     enum dma_resv_usage private_usage,
+			     enum dma_resv_usage extobj_usage);
 
 int panthor_mmu_pt_cache_init(void);
 void panthor_mmu_pt_cache_fini(void);

@@ -5,7 +5,7 @@
 #include <drm/drm_debugfs.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_exec.h>
-#include <drm/drm_gpuva_mgr.h>
+#include <drm/drm_gpuvm.h>
 #include <drm/drm_managed.h>
 #include <drm/gpu_scheduler.h>
 #include <drm/panthor_drm.h>
@@ -120,7 +120,7 @@ struct panthor_vma {
 	/** @base: Inherits from drm_gpuva. */
 	struct drm_gpuva base;
 
-	/** @node: Used to insert the mapping in the panthor_vm::shared_bos list. */
+	/** @node: Used to implement deferred release of VMAs. */
 	struct list_head node;
 
 	/**
@@ -188,14 +188,11 @@ struct panthor_vm_op_ctx {
 
 	/** @map: Fields specific to a map operation. */
 	struct {
-		/** @gem: GEM object information. */
-		struct {
-			/** @obj: GEM object to map. */
-			struct drm_gem_object *obj;
+		/** @vm_bo: Buffer object to map. */
+		struct drm_gpuvm_bo *vm_bo;
 
-			/** @offset: Offset in the GEM object. */
-			u64 offset;
-		} gem;
+		/** @bo_offset: Offset in the buffer object. */
+		u64 bo_offset;
 
 		/**
 		 * @sgt: sg-table pointing to pages backing the GEM object.
@@ -247,12 +244,12 @@ struct panthor_vm_op_ctx {
  */
 struct panthor_vm {
 	/**
-	 * @va_mgr: GPU VA manager.
+	 * @base: Inherit from drm_gpuvm.
 	 *
-	 * We delegate all the VA management to the common drm_gpuva_mgr framework
+	 * We delegate all the VA management to the common drm_gpuvm framework
 	 * and only implement hooks to update the MMU page table.
 	 */
-	struct drm_gpuva_manager va_mgr;
+	struct drm_gpuvm base;
 
 	/**
 	 * @sched: Scheduler used for asynchronous VM_BIND request.
@@ -282,18 +279,6 @@ struct panthor_vm {
 	struct io_pgtable_ops *pgtbl_ops;
 
 	/**
-	 * @dummy_gem: Used as a VM reservation object.
-	 *
-	 * We declare a drm_gem_object and no a dma_resv, so we can use drm_exec()
-	 * for the VM reservation.
-	 *
-	 * All private BOs use the resv of this dummy GEM object instead of
-	 * drm_gem_object::_resv, such that private GEM preparation is O(1)
-	 * instead of O(N).
-	 */
-	struct drm_gem_object dummy_gem;
-
-	/**
 	 * @op_lock: Lock used to serialize operations on a VM.
 	 *
 	 * The serialization of jobs queued to the VM_BIND queue is already
@@ -308,22 +293,6 @@ struct panthor_vm {
 	 * NULL when no operation is in progress.
 	 */
 	struct panthor_vm_op_ctx *op_ctx;
-
-	/**
-	 * @shared_bos: List of shared BOs.
-	 *
-	 * Shared BOs don't use the VM resv, and need to be prepared
-	 * independently. This list keeps track of all VMAs that target
-	 * non-private BOs.
-	 *
-	 * There might be duplicates, but drm_exec and dma_resv should
-	 * handle that for us.
-	 *
-	 * TODO: This is not optimal. We should probably switch to the
-	 * drm_gpuva_mgr solution for handling shared BOs once it's
-	 * ready.
-	 */
-	struct list_head shared_bos;
 
 	/**
 	 * @mm: Memory management object representing the auto-VA/kernel-VA.
@@ -1011,12 +980,19 @@ static void panthor_vm_cleanup_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 	kfree(op_ctx->rsvd_page_tables.pages);
 	memset(&op_ctx->rsvd_page_tables, 0, sizeof(op_ctx->rsvd_page_tables));
 
-	if (op_ctx->map.gem.obj) {
-		struct panthor_gem_object *bo = to_panthor_bo(op_ctx->map.gem.obj);
+	if (op_ctx->map.vm_bo) {
+		struct panthor_gem_object *bo = to_panthor_bo(op_ctx->map.vm_bo->obj);
 
 		if (!bo->base.base.import_attach)
 			drm_gem_shmem_unpin(&bo->base);
 
+		/* We must retain the GEM before calling drm_gpuvm_bo_put(),
+		 * otherwise the mutex might be destroyed while we hold it.
+		 */
+		drm_gem_object_get(&bo->base.base);
+		mutex_lock(&bo->gpuva_list_lock);
+		drm_gpuvm_bo_put(op_ctx->map.vm_bo);
+		mutex_unlock(&bo->gpuva_list_lock);
 		drm_gem_object_put(&bo->base.base);
 	}
 
@@ -1026,13 +1002,22 @@ static void panthor_vm_cleanup_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 	memset(&op_ctx->map, 0, sizeof(op_ctx->map));
 
 	list_for_each_entry_safe(vma, tmp_vma, &op_ctx->returned_vmas, node) {
-		struct panthor_gem_object *bo = to_panthor_bo(vma->base.gem.obj);
+		struct panthor_gem_object *bo = to_panthor_bo(vma->base.vm_bo->obj);
 
 		if (!bo->base.base.import_attach)
 			drm_gem_shmem_unpin(&bo->base);
 
-		drm_gem_object_put(&bo->base.base);
 		list_del(&vma->node);
+
+		/* We must retain the GEM before calling drm_gpuvm_bo_put(),
+		 * otherwise the mutex might be destroyed while we hold it.
+		 */
+		drm_gem_object_get(&bo->base.base);
+		mutex_lock(&bo->gpuva_list_lock);
+		drm_gpuvm_bo_put(vma->base.vm_bo);
+		mutex_unlock(&bo->gpuva_list_lock);
+		drm_gem_object_put(&bo->base.base);
+
 		kfree(vma);
 	}
 }
@@ -1102,9 +1087,21 @@ static int panthor_vm_prepare_map_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 	}
 
 	op_ctx->map.sgt = sgt;
-	op_ctx->map.gem.obj = &bo->base.base;
-	op_ctx->map.gem.offset = offset;
-	drm_gem_object_get(op_ctx->map.gem.obj);
+
+	op_ctx->map.vm_bo = drm_gpuvm_bo_create(&vm->base, &bo->base.base);
+	if (!op_ctx->map.vm_bo) {
+		if (!bo->base.base.import_attach)
+			drm_gem_shmem_unpin(&bo->base);
+
+		ret = -ENOMEM;
+		goto err_cleanup;
+	}
+
+	mutex_lock(&bo->gpuva_list_lock);
+	op_ctx->map.vm_bo = drm_gpuvm_bo_obtain_prealloc(op_ctx->map.vm_bo);
+	mutex_unlock(&bo->gpuva_list_lock);
+
+	op_ctx->map.bo_offset = offset;
 
 	/* L1, L2 and L3 page tables.
 	 * We could optimize L3 allocation by iterating over the sgt and merging
@@ -1128,6 +1125,9 @@ static int panthor_vm_prepare_map_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 		ret = -ENOMEM;
 		goto err_cleanup;
 	}
+
+	/* Insert BO into the extobj list last, when we know nothing can fail. */
+	drm_gpuvm_bo_extobj_add(op_ctx->map.vm_bo);
 
 	return 0;
 
@@ -1202,21 +1202,17 @@ panthor_vm_get_bo_for_va(struct panthor_vm *vm, u64 va, u64 *bo_offset)
 	struct panthor_gem_object *bo = ERR_PTR(-ENOENT);
 	struct drm_gpuva *gpuva;
 	struct panthor_vma *vma;
-	int ret;
 
-	/* Take the VM lock to prevent concurrent map/unmap operation. */
-	ret = dma_resv_lock(vm->dummy_gem.resv, NULL);
-	if (drm_WARN_ON(&vm->ptdev->base, ret))
-		return NULL;
-
-	gpuva = drm_gpuva_find_first(&vm->va_mgr, va, 1);
+	/* Take the VM lock to prevent concurrent map/unmap operations. */
+	mutex_lock(&vm->op_lock);
+	gpuva = drm_gpuva_find_first(&vm->base, va, 1);
 	vma = gpuva ? container_of(gpuva, struct panthor_vma, base) : NULL;
 	if (vma && vma->base.gem.obj) {
 		drm_gem_object_get(vma->base.gem.obj);
 		bo = to_panthor_bo(vma->base.gem.obj);
 		*bo_offset = vma->base.gem.offset;
 	}
-	dma_resv_unlock(vm->dummy_gem.resv);
+	mutex_unlock(&vm->op_lock);
 
 	return bo;
 }
@@ -1270,7 +1266,7 @@ static void panthor_vm_destroy(struct panthor_vm *vm)
 	mutex_unlock(&vm->heaps.lock);
 
 	drm_WARN_ON(&vm->ptdev->base,
-		    panthor_vm_unmap_range(vm, vm->va_mgr.mm_start, vm->va_mgr.mm_range));
+		    panthor_vm_unmap_range(vm, vm->base.mm_start, vm->base.mm_range));
 	panthor_vm_put(vm);
 }
 
@@ -1598,14 +1594,13 @@ static void panthor_vm_release(struct kref *kref)
 	mutex_unlock(&ptdev->mmu->as.slots_lock);
 
 	drm_WARN_ON(&ptdev->base,
-		    panthor_vm_unmap_range(vm, vm->va_mgr.mm_start, vm->va_mgr.mm_range));
+		    panthor_vm_unmap_range(vm, vm->base.mm_start, vm->base.mm_range));
 
 	free_io_pgtable_ops(vm->pgtbl_ops);
 
 	drm_mm_takedown(&vm->mm);
 	mutex_destroy(&vm->mm_lock);
-	drm_gpuva_manager_destroy(&vm->va_mgr);
-	drm_gem_private_object_fini(&vm->dummy_gem);
+	drm_gpuvm_destroy(&vm->base);
 	mutex_destroy(&vm->op_lock);
 	kfree(vm);
 }
@@ -1704,41 +1699,40 @@ static u64 mair_to_memattr(u64 mair)
 	return memattr;
 }
 
-static void panthor_vma_link(struct panthor_vm *vm, struct panthor_vma *vma)
+static void panthor_vma_link(struct panthor_vm *vm,
+			     struct panthor_vma *vma,
+			     struct drm_gpuvm_bo *vm_bo)
 {
 	struct panthor_gem_object *bo = to_panthor_bo(vma->base.gem.obj);
 
 	mutex_lock(&bo->gpuva_list_lock);
-	drm_gpuva_link(&vma->base);
+	drm_gpuva_link(&vma->base, vm_bo);
+	drm_gpuvm_bo_put(vm_bo);
 	mutex_unlock(&bo->gpuva_list_lock);
-
-	if (!bo->exclusive_vm)
-		list_add_tail(&vma->node, &vm->shared_bos);
 }
 
-static void panthor_vma_unlink(struct panthor_vm_op_ctx *op_ctx,
+static void panthor_vma_unlink(struct panthor_vm *vm,
 			       struct panthor_vma *vma)
 {
 	struct panthor_gem_object *bo = to_panthor_bo(vma->base.gem.obj);
+	struct drm_gpuvm_bo *vm_bo = drm_gpuvm_bo_get(vma->base.vm_bo);
 
 	mutex_lock(&bo->gpuva_list_lock);
 	drm_gpuva_unlink(&vma->base);
 	mutex_unlock(&bo->gpuva_list_lock);
 
-	list_move_tail(&vma->node, &op_ctx->returned_vmas);
+	/* drm_gpuva_unlink() release the vm_bo, but we manually retained it
+	 * when entering this function, so we can implement deferred VMA
+	 * destruction. Re-assign it here.
+	 */
+	vma->base.vm_bo = vm_bo;
+	list_add_tail(&vma->node, &vm->op_ctx->returned_vmas);
 }
 
-static void panthor_vma_init(struct panthor_vma *vma,
-			     struct drm_gem_object *obj,
-			     u64 offset,
-			     u64 va, u64 range, u32 flags)
+static void panthor_vma_init(struct panthor_vma *vma, u32 flags)
 {
 	INIT_LIST_HEAD(&vma->node);
 	vma->flags = flags;
-	vma->base.gem.obj = obj;
-	vma->base.gem.offset = offset;
-	vma->base.va.addr = va;
-	vma->base.va.range = range;
 }
 
 #define PANTHOR_VM_MAP_FLAGS \
@@ -1753,21 +1747,20 @@ static int panthor_gpuva_sm_step_map(struct drm_gpuva_op *op, void *priv)
 	struct panthor_vma *vma = op_ctx->map.new_vma;
 	int ret;
 
-	panthor_vma_init(vma, op->map.gem.obj, op->map.gem.offset, op->map.va.addr,
-			 op->map.va.range, op_ctx->flags & PANTHOR_VM_MAP_FLAGS);
+	panthor_vma_init(vma, op_ctx->flags & PANTHOR_VM_MAP_FLAGS);
 
-	ret = panthor_vm_map_pages(vm, vma->base.va.addr, flags_to_prot(vma->flags),
-				   op_ctx->map.sgt, vma->base.gem.offset,
-				   vma->base.va.range);
+	ret = panthor_vm_map_pages(vm, op->map.va.addr, flags_to_prot(vma->flags),
+				   op_ctx->map.sgt, op->map.gem.offset,
+				   op->map.va.range);
 	if (ret)
 		return ret;
 
 	/* Ref owned by the mapping now, clear the obj field so we don't release the
 	 * pinning/obj ref behind GPUVA's back.
 	 */
-	drm_gpuva_map(&vm->va_mgr, &vma->base, &op->map);
-	panthor_vma_link(vm, op_ctx->map.new_vma);
-	op_ctx->map.gem.obj = NULL;
+	drm_gpuva_map(&vm->base, &vma->base, &op->map);
+	panthor_vma_link(vm, op_ctx->map.new_vma, op_ctx->map.vm_bo);
+	op_ctx->map.vm_bo = NULL;
 	op_ctx->map.new_vma = NULL;
 	return 0;
 }
@@ -1800,12 +1793,7 @@ static int panthor_gpuva_sm_step_remap(struct drm_gpuva_op *op,
 				return ret;
 		}
 
-		panthor_vma_init(op_ctx->map.prev_vma,
-				 op->remap.prev->gem.obj,
-				 op->remap.prev->gem.offset,
-				 op->remap.prev->va.addr,
-				 op->remap.prev->va.range,
-				 unmap_vma->flags);
+		panthor_vma_init(op_ctx->map.prev_vma, unmap_vma->flags);
 		prev_va = &op_ctx->map.prev_vma->base;
 	}
 
@@ -1818,30 +1806,23 @@ static int panthor_gpuva_sm_step_remap(struct drm_gpuva_op *op,
 				return ret;
 		}
 
-		panthor_vma_init(op_ctx->map.next_vma,
-				 op->remap.next->gem.obj,
-				 op->remap.next->gem.offset,
-				 op->remap.next->va.addr,
-				 op->remap.next->va.range,
-				 unmap_vma->flags);
+		panthor_vma_init(op_ctx->map.next_vma, unmap_vma->flags);
 		next_va = &op_ctx->map.next_vma->base;
 	}
 
 	drm_gpuva_remap(prev_va, next_va, &op->remap);
 
 	if (prev_va) {
-		drm_gem_object_get(prev_va->gem.obj);
-		panthor_vma_link(vm, op_ctx->map.prev_vma);
+		panthor_vma_link(vm, op_ctx->map.prev_vma, op->remap.unmap->va->vm_bo);
 		op_ctx->map.prev_vma = NULL;
 	}
 
 	if (next_va) {
-		drm_gem_object_get(next_va->gem.obj);
-		panthor_vma_link(vm, op_ctx->map.next_vma);
+		panthor_vma_link(vm, op_ctx->map.next_vma, op->remap.unmap->va->vm_bo);
 		op_ctx->map.next_vma = NULL;
 	}
 
-	panthor_vma_unlink(op_ctx, unmap_vma);
+	panthor_vma_unlink(vm, unmap_vma);
 	return 0;
 }
 
@@ -1850,7 +1831,6 @@ static int panthor_gpuva_sm_step_unmap(struct drm_gpuva_op *op,
 {
 	struct panthor_vma *unmap_vma = container_of(op->unmap.va, struct panthor_vma, base);
 	struct panthor_vm *vm = priv;
-	struct panthor_vm_op_ctx *op_ctx = vm->op_ctx;
 	int ret;
 
 	ret = panthor_vm_unmap_pages(vm, unmap_vma->base.va.addr,
@@ -1859,11 +1839,11 @@ static int panthor_gpuva_sm_step_unmap(struct drm_gpuva_op *op,
 		return ret;
 
 	drm_gpuva_unmap(&op->unmap);
-	panthor_vma_unlink(op_ctx, unmap_vma);
+	panthor_vma_unlink(vm, unmap_vma);
 	return 0;
 }
 
-static const struct drm_gpuva_fn_ops panthor_gpuva_ops = {
+static const struct drm_gpuvm_ops panthor_gpuvm_ops = {
 	.sm_step_map = panthor_gpuva_sm_step_map,
 	.sm_step_remap = panthor_gpuva_sm_step_remap,
 	.sm_step_unmap = panthor_gpuva_sm_step_unmap,
@@ -1877,7 +1857,7 @@ static const struct drm_gpuva_fn_ops panthor_gpuva_ops = {
  */
 struct dma_resv *panthor_vm_resv(struct panthor_vm *vm)
 {
-	return vm->dummy_gem.resv;
+	return vm->base.d_obj.resv;
 }
 
 static int
@@ -1895,12 +1875,12 @@ panthor_vm_exec_op(struct panthor_vm *vm, struct panthor_vm_op_ctx *op,
 			break;
 		}
 
-		ret = drm_gpuva_sm_map(&vm->va_mgr, vm, op->va.addr, op->va.range,
-				       op->map.gem.obj, op->map.gem.offset);
+		ret = drm_gpuvm_sm_map(&vm->base, vm, op->va.addr, op->va.range,
+				       op->map.vm_bo->obj, op->map.bo_offset);
 		break;
 
 	case DRM_PANTHOR_VM_BIND_OP_TYPE_UNMAP:
-		ret = drm_gpuva_sm_unmap(&vm->va_mgr, vm, op->va.addr, op->va.range);
+		ret = drm_gpuvm_sm_unmap(&vm->base, vm, op->va.addr, op->va.range);
 		break;
 
 	default:
@@ -2015,10 +1995,8 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 
 	mutex_init(&vm->heaps.lock);
 	kref_init(&vm->refcount);
-	drm_gem_private_object_init(&ptdev->base, &vm->dummy_gem, 0);
 	vm->for_mcu = for_mcu;
 	vm->ptdev = ptdev;
-	INIT_LIST_HEAD(&vm->shared_bos);
 	mutex_init(&vm->op_lock);
 
 	if (for_mcu) {
@@ -2044,10 +2022,10 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	/* We intentionally leave the reserved range to zero, because we want kernel VMAs
 	 * to be handled the same way user VMAs are.
 	 */
-	drm_gpuva_manager_init(&vm->va_mgr,
-			       for_mcu ? "panthor-MCU-VA-manager" : "panthor-GPU-VA-manager",
-			       min_va, va_range, 0, 0,
-			       &panthor_gpuva_ops);
+	drm_gpuvm_init(&vm->base, &ptdev->base,
+		       for_mcu ? "panthor-MCU-VM" : "panthor-GPU-VM",
+		       min_va, va_range, 0, 0,
+		       &panthor_gpuvm_ops);
 	INIT_LIST_HEAD(&vm->node);
 	INIT_LIST_HEAD(&vm->as.lru_node);
 	vm->as.id = -1;
@@ -2104,8 +2082,7 @@ err_free_io_pgtable:
 
 err_gpuva_destroy:
 	drm_mm_takedown(&vm->mm);
-	drm_gpuva_manager_destroy(&vm->va_mgr);
-	drm_gem_private_object_fini(&vm->dummy_gem);
+	drm_gpuvm_destroy(&vm->base);
 	kfree(vm);
 
 	return ERR_PTR(ret);
@@ -2216,13 +2193,13 @@ int panthor_vm_bind_job_prepare_resvs(struct drm_exec *exec,
 	int ret;
 
 	/* Acquire the VM lock an reserve a slot for this VM bind job. */
-	ret = drm_exec_prepare_obj(exec, &job->vm->dummy_gem, 1);
+	ret = drm_gpuvm_prepare_vm(&job->vm->base, exec, 1);
 	if (ret)
 		return ret;
 
-	if (job->ctx.map.gem.obj) {
+	if (job->ctx.map.vm_bo) {
 		/* Lock/prepare the GEM being mapped. */
-		ret = drm_exec_prepare_obj(exec, job->ctx.map.gem.obj, 1);
+		ret = drm_exec_prepare_obj(exec, job->ctx.map.vm_bo->obj, 1);
 		if (ret)
 			return ret;
 	}
@@ -2231,53 +2208,28 @@ int panthor_vm_bind_job_prepare_resvs(struct drm_exec *exec,
 }
 
 /**
- * panthor_vm_bind_job_add_resvs_deps() - Add implicit deps to the VM_BIND job
- * @sched_job: Job to add implicit deps on.
- *
- * Return: 0 on success, a negative error code otherwise.
- */
-int panthor_vm_bind_job_add_resvs_deps(struct drm_sched_job *sched_job)
-{
-	struct panthor_vm_bind_job *job = container_of(sched_job, struct panthor_vm_bind_job, base);
-	int ret;
-
-	/* We use explicit fencing, so no need to wait for anything else but
-	 * DMA_RESV_USAGE_KERNEL on the BO being mapped or VM. If there are extra
-	 * dependencies, they should be passed to the VM_BIND ioctl.
-	 */
-	ret = drm_sched_job_add_resv_dependencies(sched_job,
-						  job->vm->dummy_gem.resv,
-						  DMA_RESV_USAGE_KERNEL);
-	if (ret)
-		return ret;
-
-	if (job->ctx.map.gem.obj) {
-		ret = drm_sched_job_add_resv_dependencies(sched_job,
-							  job->ctx.map.gem.obj->resv,
-							  DMA_RESV_USAGE_KERNEL);
-	}
-
-	return 0;
-}
-
-/**
  * panthor_vm_bind_job_update_resvs() - Update the resv objects touched by a job
+ * @exec: drm_exec context.
  * @sched_job: Job to update the resvs on.
  */
-void panthor_vm_bind_job_update_resvs(struct drm_sched_job *sched_job)
+void panthor_vm_bind_job_update_resvs(struct drm_exec *exec,
+				      struct drm_sched_job *sched_job)
 {
 	struct panthor_vm_bind_job *job = container_of(sched_job, struct panthor_vm_bind_job, base);
 
 	/* Explicit sync => we just register our job finished fence as bookkeep. */
-	dma_resv_add_fence(job->vm->dummy_gem.resv,
-			   &sched_job->s_fence->finished,
-			   DMA_RESV_USAGE_BOOKKEEP);
+	drm_gpuvm_resv_add_fence(&job->vm->base, exec,
+				 &sched_job->s_fence->finished,
+				 DMA_RESV_USAGE_BOOKKEEP,
+				 DMA_RESV_USAGE_BOOKKEEP);
+}
 
-	if (job->ctx.map.gem.obj) {
-		dma_resv_add_fence(job->ctx.map.gem.obj->resv,
-				   &sched_job->s_fence->finished,
-				   DMA_RESV_USAGE_BOOKKEEP);
-	}
+void panthor_vm_update_resvs(struct panthor_vm *vm, struct drm_exec *exec,
+			     struct dma_fence *fence,
+			     enum dma_resv_usage private_usage,
+			     enum dma_resv_usage extobj_usage)
+{
+	drm_gpuvm_resv_add_fence(&vm->base, exec, fence, private_usage, extobj_usage);
 }
 
 /**
@@ -2373,6 +2325,7 @@ int panthor_vm_unmap_range(struct panthor_vm *vm, u64 va, size_t size)
  * panthor_vm_prepare_mapped_bos_resvs() - Prepare resvs on VM BOs.
  * @exec: Locking/preparation context.
  * @vm: VM targeted by the GPU job.
+ * @slot_count: Number of slots to reserve.
  *
  * GPU jobs assume all BOs bound to the VM at the time the job is submitted
  * are available when the job is executed. In order to guarantee that, we
@@ -2381,88 +2334,21 @@ int panthor_vm_unmap_range(struct panthor_vm *vm, u64 va, size_t size)
  *
  * Return: 0 on success, a negative error code otherwise.
  */
-int panthor_vm_prepare_mapped_bos_resvs(struct drm_exec *exec, struct panthor_vm *vm)
+int panthor_vm_prepare_mapped_bos_resvs(struct drm_exec *exec, struct panthor_vm *vm,
+					u32 slot_count)
 {
-	struct panthor_vma *vma;
 	int ret;
 
 	/* Acquire the VM lock an reserve a slot for this GPU job. */
-	ret = drm_exec_prepare_obj(exec, &vm->dummy_gem, 1);
+	ret = drm_gpuvm_prepare_vm(&vm->base, exec, slot_count);
 	if (ret)
 		return ret;
 
-	list_for_each_entry(vma, &vm->shared_bos, node) {
-		ret = drm_exec_prepare_obj(exec, vma->base.gem.obj, 1);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
-/**
- * panthor_vm_add_bos_resvs_deps_to_job() - Add implicit VM deps to a GPU job
- * @vm: VM targeted by the GPU job.
- * @job: GPU job.
- *
- * We just take care of kernel access. Other accesses should be passed as
- * explicit dependencies to the job.
- *
- * Return: 0 on success, a negative error code otherwise.
- */
-int panthor_vm_add_bos_resvs_deps_to_job(struct panthor_vm *vm,
-					 struct drm_sched_job *job)
-{
-	struct panthor_vma *vma;
-	int ret;
-
-	/* We use explicit fencing, so no need to wait for anything else but
-	 * DMA_RESV_USAGE_KERNEL on the BO being mapped or VM. If there are extra
-	 * dependencies, they should be passed to the VM_BIND ioctl.
+	/* VM operations are not protected by the VM resv-lock. We need to
+	 * take the op_lock to make sure the shared_bos list is not updated
+	 * while we're walking it.
 	 */
-	ret = drm_sched_job_add_resv_dependencies(job,
-						  vm->dummy_gem.resv,
-						  DMA_RESV_USAGE_KERNEL);
-	if (ret)
-		return ret;
-
-	list_for_each_entry(vma, &vm->shared_bos, node) {
-		ret = drm_sched_job_add_resv_dependencies(job,
-							  vma->base.gem.obj->resv,
-							  DMA_RESV_USAGE_KERNEL);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
-/**
- * panthor_vm_add_job_fence_to_bos_resvs() - Add GPU job fence to GEM resvs
- * @vm: VM targeted by the GPU job.
- * @job: GPU job.
- *
- * Update the GEM resvs after a job has been submitted. All GEMs currently
- * bound to the VMs get the job fence added to their resv as bookkeep. If
- * another type of implicit dependency is needed, it should be updated
- * with %DMA_BUF_IOCTL_IMPORT_SYNC_FILE after the
- * %DRM_IOCTL_PANTHOR_GROUP_SUBMIT ioctl has returned.
- */
-void panthor_vm_add_job_fence_to_bos_resvs(struct panthor_vm *vm,
-					   struct drm_sched_job *job)
-{
-	struct panthor_vma *vma;
-
-	/* Explicit sync => we just register our job finished fence as bookkeep. */
-	dma_resv_add_fence(vm->dummy_gem.resv,
-			   &job->s_fence->finished,
-			   DMA_RESV_USAGE_BOOKKEEP);
-
-	list_for_each_entry(vma, &vm->shared_bos, node) {
-		dma_resv_add_fence(vma->base.gem.obj->resv,
-				   &job->s_fence->finished,
-				   DMA_RESV_USAGE_BOOKKEEP);
-	}
+	return drm_gpuvm_prepare_objects(&vm->base, exec, slot_count);
 }
 
 /**
@@ -2544,7 +2430,7 @@ static int show_vm_gpuvas(struct panthor_vm *vm, struct seq_file *m)
 	int ret;
 
 	mutex_lock(&vm->op_lock);
-	ret = drm_debugfs_gpuva_info(m, &vm->va_mgr);
+	ret = drm_debugfs_gpuva_info(m, &vm->base);
 	mutex_unlock(&vm->op_lock);
 
 	return ret;
