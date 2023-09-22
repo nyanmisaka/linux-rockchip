@@ -2024,7 +2024,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	 */
 	drm_gpuvm_init(&vm->base, &ptdev->base,
 		       for_mcu ? "panthor-MCU-VM" : "panthor-GPU-VM",
-		       min_va, va_range, 0, 0,
+		       0, min_va, va_range, 0, 0,
 		       &panthor_gpuvm_ops);
 	INIT_LIST_HEAD(&vm->node);
 	INIT_LIST_HEAD(&vm->as.lru_node);
