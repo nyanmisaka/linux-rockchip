@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 or MIT
 /* Copyright 2023 Collabora ltd. */
 
-#ifdef CONFIG_ARM_ARCH_TIMER
-#include <asm/arch_timer.h>
-#endif
-
 #include <drm/panthor_drm.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_exec.h>
