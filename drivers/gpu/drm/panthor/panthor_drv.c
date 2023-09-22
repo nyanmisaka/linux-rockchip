@@ -784,7 +784,6 @@ static int panthor_ioctl_vm_create(struct drm_device *ddev, void *data,
 				   struct drm_file *file)
 {
 	struct panthor_device *ptdev = container_of(ddev, struct panthor_device, base);
-	u32 va_bits = GPU_MMU_FEATURES_VA_BITS(ptdev->gpu_info.mmu_features);
 	struct panthor_file *pfile = file->driver_priv;
 	struct drm_panthor_vm_create *args = data;
 	u64 kernel_va_start = 0;
@@ -793,27 +792,12 @@ static int panthor_ioctl_vm_create(struct drm_device *ddev, void *data,
 	if (!drm_dev_enter(ddev, &cookie))
 		return -ENODEV;
 
-	if (args->flags & ~PANTHOR_VM_CREATE_FLAGS) {
-		ret = -EINVAL;
-		goto out_dev_exit;
-	}
-
-	if (drm_WARN_ON(ddev, !va_bits) || args->kernel_va_range > (1ull << va_bits)) {
-		ret = -EINVAL;
-		goto out_dev_exit;
-	}
-
-	if (args->kernel_va_range)
-		kernel_va_start = (1 << va_bits) - args->kernel_va_range;
-
-	ret = panthor_vm_pool_create_vm(ptdev, pfile->vms,
-					kernel_va_start, args->kernel_va_range);
+	ret = panthor_vm_pool_create_vm(ptdev, pfile->vms,  args);
 	if (ret >= 0) {
 		args->id = ret;
 		ret = 0;
 	}
 
-out_dev_exit:
 	drm_dev_exit(cookie);
 	return ret;
 }
