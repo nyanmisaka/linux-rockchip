@@ -2788,8 +2788,7 @@ group_create_queue(struct panthor_group *group,
 		goto out;
 	}
 
-	ret = drm_sched_init(&queue->scheduler, &panthor_queue_sched_ops,
-			     scheduler->wq,
+	ret = drm_sched_init(&queue->scheduler, &panthor_queue_sched_ops, NULL,
 			     args->ringbuf_size / (NUM_INSTRS_PER_SLOT * sizeof(u64)),
 			     0, msecs_to_jiffies(JOB_TIMEOUT_MS),
 			     group->ptdev->reset.wq,
