@@ -921,7 +921,6 @@ cs_slot_prog_locked(struct panthor_device *ptdev, u32 csg_id, u32 cs_id)
 			       CS_IDLE_EMPTY |
 			       CS_STATE_MASK |
 			       CS_EXTRACT_EVENT);
-	drm_sched_resume_timeout(&queue->scheduler, queue->remaining_time);
 	if (queue->iface.input->insert != queue->iface.input->extract && queue->timeout_suspended) {
 		drm_sched_resume_timeout(&queue->scheduler, queue->remaining_time);
 		queue->timeout_suspended = false;
@@ -2739,7 +2738,6 @@ static struct panthor_queue *
 group_create_queue(struct panthor_group *group,
 		   const struct drm_panthor_queue_create *args)
 {
-	struct panthor_scheduler *scheduler = group->ptdev->scheduler;
 	struct drm_gpu_scheduler *drm_sched;
 	struct panthor_queue *queue;
 	int ret;
