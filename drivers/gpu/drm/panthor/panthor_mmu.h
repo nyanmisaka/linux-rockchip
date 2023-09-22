@@ -52,8 +52,9 @@ struct dma_resv *panthor_vm_resv(struct panthor_vm *vm);
 
 void panthor_vm_pool_destroy(struct panthor_file *pfile);
 int panthor_vm_pool_create(struct panthor_file *pfile);
-int panthor_vm_pool_create_vm(struct panthor_device *ptdev, struct panthor_vm_pool *pool,
-			      u64 kernel_va_start, u64 kernel_va_range);
+int panthor_vm_pool_create_vm(struct panthor_device *ptdev,
+			      struct panthor_vm_pool *pool,
+			      struct drm_panthor_vm_create *args);
 int panthor_vm_pool_destroy_vm(struct panthor_vm_pool *pool, u32 handle);
 struct panthor_vm *panthor_vm_pool_get_vm(struct panthor_vm_pool *pool, u32 handle);
 

@@ -23,6 +23,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/rwsem.h>
+#include <linux/sched.h>
 #include <linux/shmem_fs.h>
 #include <linux/sizes.h>
 
@@ -437,7 +438,7 @@ static void *alloc_pt(void *cookie, size_t size, gfp_t gfp)
 		p = alloc_pages_node(dev_to_node(vm->ptdev->base.dev), gfp | __GFP_ZERO, get_order(size));
 		page = p ? page_address(p) : NULL;
 		vm->root_page_table = page;
-		goto out;
+		return page;
 	}
 
 	/* We're not supposed to have anything bigger than 4k here, because we picked a
@@ -457,7 +458,6 @@ static void *alloc_pt(void *cookie, size_t size, gfp_t gfp)
 	page = vm->op_ctx->rsvd_page_tables.pages[vm->op_ctx->rsvd_page_tables.ptr++];
 	memset(page, 0, SZ_4K);
 
-out:
 	/* Page table entries don't use virtual addresses, which trips out
 	 * kmemleak. kmemleak_alloc_phys() might work, but physical addresses
 	 * are mixed with other fields, and I fear kmemleak won't detect that
@@ -1229,11 +1229,77 @@ panthor_vm_get_bo_for_va(struct panthor_vm *vm, u64 va, u64 *bo_offset)
 	return bo;
 }
 
+#define PANTHOR_VM_MIN_KERNEL_VA_SIZE	SZ_256M
+
+static u64
+panthor_vm_create_get_user_va_range(const struct drm_panthor_vm_create *args,
+				    u64 full_va_range)
+{
+	u64 user_va_range;
+
+	/* Make sure we have a minimum amount of VA space for kernel objects. */
+	if (full_va_range < PANTHOR_VM_MIN_KERNEL_VA_SIZE)
+		return 0;
+
+	if (args->user_va_range) {
+		/* Use the user provided value if != 0. */
+		user_va_range = args->user_va_range;
+	} else if (TASK_SIZE_OF(current) < full_va_range) {
+		/* If the task VM size is smaller than the GPU VA range, pick this
+		 * as our default user VA range, so userspace can CPU/GPU map buffers
+		 * at the same address.
+		 */
+		user_va_range = TASK_SIZE_OF(current);
+	} else {
+		/* If the GPU VA range is smaller than the task VM size, we
+		 * just have to live with the fact we won't be able to map
+		 * all buffers at the same GPU/CPU address.
+		 *
+		 * If the GPU VA range is bigger than 4G (more than 32-bit of
+		 * VA), we split the range in two, and assign half of it to
+		 * the user and the other half to the kernel, if it's not, we
+		 * keep the kernel VA space as small as possible.
+		 */
+		user_va_range = full_va_range > SZ_4G ?
+				full_va_range / 2 :
+				full_va_range - PANTHOR_VM_MIN_KERNEL_VA_SIZE;
+	}
+
+	if (full_va_range - PANTHOR_VM_MIN_KERNEL_VA_SIZE < user_va_range)
+		user_va_range = full_va_range - PANTHOR_VM_MIN_KERNEL_VA_SIZE;
+
+	return user_va_range;
+}
+
+#define PANTHOR_VM_CREATE_FLAGS		0
+
+static int
+panthor_vm_create_check_args(const struct panthor_device *ptdev,
+			     const struct drm_panthor_vm_create *args,
+			     u64 *kernel_va_start, u64 *kernel_va_range)
+{
+	u32 va_bits = GPU_MMU_FEATURES_VA_BITS(ptdev->gpu_info.mmu_features);
+	u64 full_va_range = 1ull << min_t(u32, va_bits, sizeof(unsigned long) * 8);
+	u64 user_va_range;
+
+	if (args->flags & ~PANTHOR_VM_CREATE_FLAGS)
+		return -EINVAL;
+
+	user_va_range = panthor_vm_create_get_user_va_range(args, full_va_range);
+	if (!user_va_range || (args->user_va_range && args->user_va_range > user_va_range))
+		return -EINVAL;
+
+	/* Pick a kernel VA range that's a power of two, to have a clear split. */
+	*kernel_va_range = rounddown_pow_of_two(full_va_range - user_va_range);
+	*kernel_va_start = full_va_range - *kernel_va_range;
+	return 0;
+}
+
 /*
  * Only 32 VMs per open file. If that becomes a limiting factor, we can
  * increase this number.
  */
-#define PANTHOR_MAX_VMS_PER_FILE	 32
+#define PANTHOR_MAX_VMS_PER_FILE	32
 
 /**
  * panthor_vm_pool_create_vm() - Create a VM
@@ -1243,12 +1309,18 @@ panthor_vm_get_bo_for_va(struct panthor_vm *vm, u64 va, u64 *bo_offset)
  *
  * Return: 0 on success, a negative error code otherwise.
  */
-int panthor_vm_pool_create_vm(struct panthor_device *ptdev, struct panthor_vm_pool *pool,
-			      u64 kernel_va_start, u64 kernel_va_range)
+int panthor_vm_pool_create_vm(struct panthor_device *ptdev,
+			      struct panthor_vm_pool *pool,
+			      struct drm_panthor_vm_create *args)
 {
+	u64 kernel_va_start, kernel_va_range;
 	struct panthor_vm *vm;
 	int ret;
 	u32 id;
+
+	ret = panthor_vm_create_check_args(ptdev, args, &kernel_va_start, &kernel_va_range);
+	if (ret)
+		return ret;
 
 	vm = panthor_vm_create(ptdev, false, kernel_va_start, kernel_va_range);
 	if (IS_ERR(vm))
@@ -1262,6 +1334,7 @@ int panthor_vm_pool_create_vm(struct panthor_device *ptdev, struct panthor_vm_po
 		return ret;
 	}
 
+	args->user_va_range = kernel_va_start;
 	return id;
 }
 
@@ -1995,7 +2068,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 {
 	u32 va_bits = GPU_MMU_FEATURES_VA_BITS(ptdev->gpu_info.mmu_features);
 	u32 pa_bits = GPU_MMU_FEATURES_PA_BITS(ptdev->gpu_info.mmu_features);
-	u64 max_va = 1ull << min_t(u32, va_bits, sizeof(unsigned long) * 8);
+	u64 full_va_range = 1ull << min_t(u32, va_bits, sizeof(unsigned long) * 8);
 	struct drm_gpu_scheduler *sched;
 	struct io_pgtable_cfg pgtbl_cfg;
 	u64 mair, min_va, va_range;
@@ -2018,7 +2091,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 		va_range = SZ_4G;
 	} else {
 		min_va = 0;
-		va_range = max_va;
+		va_range = full_va_range;
 
 		/* If the auto_va_range is zero, we reserve half of the VA
 		 * space for kernel stuff.
