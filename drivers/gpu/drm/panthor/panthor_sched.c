@@ -275,7 +275,7 @@ struct panthor_scheduler {
 		 * Set to true in panthor_sched_pre_reset() and back to false in
 		 * panthor_sched_post_reset().
 		 */
-		bool in_progress;
+		atomic_t in_progress;
 
 		/**
 		 * @stopped_groups: List containing all groups that were stopped
@@ -640,7 +640,7 @@ struct panthor_group {
  */
 #define sched_queue_work(sched, wname) \
 	do { \
-		if (!sched->reset.in_progress && \
+		if (!atomic_read(&sched->reset.in_progress) && \
 		    !panthor_device_reset_is_pending((sched)->ptdev)) \
 			queue_work((sched)->wq, &(sched)->wname ## _work); \
 	} while (0)
@@ -656,7 +656,7 @@ struct panthor_group {
  */
 #define sched_queue_delayed_work(sched, wname, delay) \
 	do { \
-		if (!sched->reset.in_progress && \
+		if (!atomic_read(&sched->reset.in_progress) && \
 		    !panthor_device_reset_is_pending((sched)->ptdev)) \
 			mod_delayed_work((sched)->wq, &(sched)->wname ## _work, delay); \
 	} while (0)
@@ -908,7 +908,7 @@ cs_slot_prog_locked(struct panthor_device *ptdev, u32 csg_id, u32 cs_id)
 	cs_iface->input->ringbuf_base = queue->ringbuf.gpu_va;
 	cs_iface->input->ringbuf_size = queue->ringbuf.bo->base.base.size;
 	cs_iface->input->ringbuf_input = panthor_fw_mem_va(queue->iface.mem);
-	cs_iface->input->ringbuf_output = panthor_fw_mem_va(queue->iface.mem) + PAGE_SIZE;
+	cs_iface->input->ringbuf_output = panthor_fw_mem_va(queue->iface.mem) + SZ_4K;
 	cs_iface->input->config = CS_CONFIG_PRIORITY(queue->priority) |
 				  CS_CONFIG_DOORBELL(queue->doorbell_id);
 	cs_iface->input->ack_irq_mask = ~0;
@@ -2245,6 +2245,11 @@ static void group_schedule_locked(struct panthor_group *group, u32 queue_mask)
 
 	was_idle = group_is_idle(group);
 	group->idle_queues &= ~queue_mask;
+
+	/* Don't mess up with the lists if we're in a middle of a reset. */
+	if (atomic_read(&sched->reset.in_progress))
+		return;
+
 	if (was_idle && !group_is_idle(group))
 		list_move_tail(&group->run_node, queue);
 
@@ -2442,9 +2447,7 @@ void panthor_sched_suspend(struct panthor_device *ptdev)
 
 		if (group_can_run(group)) {
 			list_add(&group->run_node,
-				 group_is_idle(group) ?
-				 &sched->groups.idle[group->priority] :
-				 &sched->groups.runnable[group->priority]);
+				 &sched->groups.idle[group->priority]);
 		} else {
 			/* We don't bother stopping the scheduler if the group is
 			 * faulty, the group termination work will finish the job.
@@ -2464,11 +2467,11 @@ void panthor_sched_pre_reset(struct panthor_device *ptdev)
 	u32 i;
 
 	mutex_lock(&sched->reset.lock);
+	atomic_set(&sched->reset.in_progress, true);
 
 	/* Cancel all scheduler works. Once this is done, these works can't be
 	 * scheduled again until the reset operation is complete.
 	 */
-	sched->reset.in_progress = true;
 	cancel_work_sync(&sched->sync_upd_work);
 	cancel_delayed_work_sync(&sched->tick_work);
 
@@ -2478,6 +2481,8 @@ void panthor_sched_pre_reset(struct panthor_device *ptdev)
 	 * new jobs while we're resetting.
 	 */
 	for (i = 0; i < ARRAY_SIZE(sched->groups.runnable); i++) {
+		/* All groups should be in the idle lists. */
+		drm_WARN_ON(&ptdev->base, !list_empty(&sched->groups.runnable[i]));
 		list_for_each_entry_safe(group, group_tmp, &sched->groups.runnable[i], run_node)
 			panthor_group_stop(group);
 	}
@@ -2503,7 +2508,7 @@ void panthor_sched_post_reset(struct panthor_device *ptdev)
 	/* We're done resetting the GPU, clear the reset.in_progress bit so we can
 	 * kick the scheduler.
 	 */
-	sched->reset.in_progress = false;
+	atomic_set(&sched->reset.in_progress, false);
 	mutex_unlock(&sched->reset.lock);
 
 	sched_queue_delayed_work(sched, tick, 0);
@@ -2697,7 +2702,7 @@ queue_timedout_job(struct drm_sched_job *sched_job)
 
 	drm_warn(&ptdev->base, "job timeout\n");
 
-	WARN_ON(sched->reset.in_progress);
+	drm_WARN_ON(&ptdev->base, atomic_read(&sched->reset.in_progress));
 
 	queue_stop(queue, job);
 
@@ -2709,7 +2714,7 @@ queue_timedout_job(struct drm_sched_job *sched_job)
 		/* Remove from the run queues, so the scheduler can't
 		 * pick the group on the next tick.
 		 */
-		WARN_ON(list_empty(&group->run_node));
+		drm_WARN_ON(&ptdev->base, list_empty(&group->run_node));
 		list_del_init(&group->run_node);
 		list_del_init(&group->wait_node);
 
@@ -2912,7 +2917,7 @@ int panthor_group_create(struct panthor_file *pfile,
 		goto err_put_group;
 
 	mutex_lock(&sched->reset.lock);
-	if (sched->reset.in_progress) {
+	if (atomic_read(&sched->reset.in_progress)) {
 		panthor_group_stop(group);
 	} else {
 		mutex_lock(&sched->lock);
@@ -2950,7 +2955,7 @@ int panthor_group_destroy(struct panthor_file *pfile, u32 group_handle)
 	group->destroyed = true;
 	if (group->csg_id >= 0) {
 		sched_queue_delayed_work(sched, tick, 0);
-	} else if (!sched->reset.in_progress) {
+	} else if (!atomic_read(&sched->reset.in_progress)) {
 		/* Remove from the run queues, so the scheduler can't
 		 * pick the group on the next tick.
 		 */
