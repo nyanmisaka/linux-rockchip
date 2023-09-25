@@ -129,17 +129,17 @@ struct panthor_device {
 	/** @pm: Power management related data. */
 	struct {
 		/** @state: Power state. */
-		enum panthor_device_pm_state state;
+		atomic_t state;
 
 		/**
-		 * @lock: Lock protecting the suspend/resume operations.
+		 * @mmio_lock: Lock protecting MMIO userspace CPU mappings.
 		 *
 		 * This is needed to ensure we map the dummy IO pages when
 		 * the device is being suspended, and the real IO pages when
 		 * the device is being resumed. We can't just do with the
 		 * state atomicity to deal with this race.
 		 */
-		struct mutex lock;
+		struct mutex mmio_lock;
 
 		/**
 		 * @dummy_latest_flush: Dummy LATEST_FLUSH page.
@@ -173,7 +173,8 @@ void panthor_device_unplug(struct panthor_device *ptdev);
  */
 static inline void panthor_device_schedule_reset(struct panthor_device *ptdev)
 {
-	if (!atomic_cmpxchg(&ptdev->reset.pending, 0, 1))
+	if (!atomic_cmpxchg(&ptdev->reset.pending, 0, 1) &&
+	    atomic_read(&ptdev->pm.state) == PANTHOR_DEVICE_PM_STATE_ACTIVE)
 		queue_work(ptdev->reset.wq, &ptdev->reset.work);
 }
 

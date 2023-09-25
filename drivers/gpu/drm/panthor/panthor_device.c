@@ -83,18 +83,17 @@ static void panthor_device_reset_work(struct work_struct *work)
 	struct panthor_device *ptdev = container_of(work, struct panthor_device, reset.work);
 	int ret = 0, cookie;
 
-	if (!drm_dev_enter(&ptdev->base, &cookie))
-		return;
-
-	mutex_lock(&ptdev->pm.lock);
-	if (ptdev->pm.state != PANTHOR_DEVICE_PM_STATE_ACTIVE) {
+	if (atomic_read(&ptdev->pm.state) != PANTHOR_DEVICE_PM_STATE_ACTIVE) {
 		/*
 		 * No need for a reset as the device has been (or will be)
 		 * powered down
 		 */
 		atomic_set(&ptdev->reset.pending, 0);
-		goto out;
+		return;
 	}
+
+	if (!drm_dev_enter(&ptdev->base, &cookie))
+		return;
 
 	panthor_sched_pre_reset(ptdev);
 	panthor_fw_pre_reset(ptdev, true);
@@ -104,18 +103,18 @@ static void panthor_device_reset_work(struct work_struct *work)
 	panthor_mmu_post_reset(ptdev);
 	ret = panthor_fw_post_reset(ptdev);
 	if (ret)
-		goto out;
+		goto out_dev_exit;
 
 	atomic_set(&ptdev->reset.pending, 0);
 	panthor_sched_post_reset(ptdev);
 
-out:
-	drm_dev_exit(cookie);
 	if (ret) {
 		panthor_device_unplug(ptdev);
 		drm_err(&ptdev->base, "Failed to boot MCU after reset, making device unusable.");
 	}
-	mutex_unlock(&ptdev->pm.lock);
+
+out_dev_exit:
+	drm_dev_exit(cookie);
 }
 
 static bool panthor_device_is_initialized(struct panthor_device *ptdev)
@@ -136,8 +135,8 @@ int panthor_device_init(struct panthor_device *ptdev)
 
 	ptdev->coherent = device_get_dma_attr(ptdev->base.dev) == DEV_DMA_COHERENT;
 
-	drmm_mutex_init(&ptdev->base, &ptdev->pm.lock);
-	ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_SUSPENDED;
+	drmm_mutex_init(&ptdev->base, &ptdev->pm.mmio_lock);
+	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
 	p = alloc_page(GFP_KERNEL | __GFP_ZERO);
 	if (!p)
 		return -ENOMEM;
@@ -297,8 +296,8 @@ static vm_fault_t panthor_mmio_vm_fault(struct vm_fault *vmf)
 	if (!drm_dev_enter(&ptdev->base, &cookie))
 		return VM_FAULT_SIGBUS;
 
-	mutex_lock(&ptdev->pm.lock);
-	active = ptdev->pm.state == PANTHOR_DEVICE_PM_STATE_ACTIVE;
+	mutex_lock(&ptdev->pm.mmio_lock);
+	active = atomic_read(&ptdev->pm.state) == PANTHOR_DEVICE_PM_STATE_ACTIVE;
 
 	switch (panthor_device_mmio_offset(id)) {
 	case DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET:
@@ -320,7 +319,7 @@ static vm_fault_t panthor_mmio_vm_fault(struct vm_fault *vmf)
 	ret = vmf_insert_pfn_prot(vma, vmf->address, pfn, pgprot);
 
 out_unlock:
-	mutex_unlock(&ptdev->pm.lock);
+	mutex_unlock(&ptdev->pm.mmio_lock);
 	drm_dev_exit(cookie);
 	return ret;
 }
@@ -360,12 +359,14 @@ int panthor_device_resume(struct device *dev)
 	struct panthor_device *ptdev = dev_get_drvdata(dev);
 	int ret, cookie;
 
-	mutex_lock(&ptdev->pm.lock);
-	ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_RESUMING;
+	if (atomic_read(&ptdev->pm.state) != PANTHOR_DEVICE_PM_STATE_SUSPENDED)
+		return -EINVAL;
+
+	atomic_set(&ptdev->pm.state,PANTHOR_DEVICE_PM_STATE_RESUMING);
 
 	ret = clk_prepare_enable(ptdev->clks.core);
 	if (ret)
-		goto err_unlock;
+		goto err_set_suspended;
 
 	ret = clk_prepare_enable(ptdev->clks.stacks);
 	if (ret)
@@ -393,18 +394,19 @@ int panthor_device_resume(struct device *dev)
 			goto err_devfreq_suspend;
 	}
 
+	if (atomic_read(&ptdev->reset.pending))
+		queue_work(ptdev->reset.wq, &ptdev->reset.work);
+
 	/* Clear all IOMEM mappings pointing to this device after we've
 	 * resumed. This way the fake mappings pointing to the dummy pages
 	 * are removed and the real iomem mapping will be restored on next
 	 * access.
 	 */
+	mutex_lock(&ptdev->pm.mmio_lock);
 	unmap_mapping_range(ptdev->base.anon_inode->i_mapping,
 			    DRM_PANTHOR_USER_MMIO_OFFSET, 0, 1);
-	ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_ACTIVE;
-	if (atomic_read(&ptdev->reset.pending))
-		queue_work(ptdev->reset.wq, &ptdev->reset.work);
-
-	mutex_unlock(&ptdev->pm.lock);
+	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_ACTIVE);
+	mutex_unlock(&ptdev->pm.mmio_lock);
 	return 0;
 
 err_devfreq_suspend:
@@ -419,9 +421,8 @@ err_disable_stacks_clk:
 err_disable_core_clk:
 	clk_disable_unprepare(ptdev->clks.core);
 
-err_unlock:
-	ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_SUSPENDED;
-	mutex_unlock(&ptdev->pm.lock);
+err_set_suspended:
+	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
 	return ret;
 }
 
@@ -430,21 +431,21 @@ int panthor_device_suspend(struct device *dev)
 	struct panthor_device *ptdev = dev_get_drvdata(dev);
 	int ret, cookie;
 
-	mutex_lock(&ptdev->pm.lock);
-
-	if (ptdev->pm.state != PANTHOR_DEVICE_PM_STATE_ACTIVE) {
-		mutex_unlock(&ptdev->pm.lock);
-		return 0;
-	}
-
-	ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_SUSPENDING;
+	if (atomic_read(&ptdev->pm.state) != PANTHOR_DEVICE_PM_STATE_ACTIVE)
+		return -EINVAL;
 
 	/* Clear all IOMEM mappings pointing to this device before we
 	 * shutdown the power-domain and clocks. Failing to do that results
 	 * in external aborts when the process accesses the iomem region.
+	 * We change the state and call unmap_mapping_range() with the
+	 * mmio_lock held to make sure the vm_fault handler won't set up
+	 * invalid mappings.
 	 */
+	mutex_lock(&ptdev->pm.mmio_lock);
+	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDING);
 	unmap_mapping_range(ptdev->base.anon_inode->i_mapping,
 			    DRM_PANTHOR_USER_MMIO_OFFSET, 0, 1);
+	mutex_unlock(&ptdev->pm.mmio_lock);
 
 	if (panthor_device_is_initialized(ptdev) &&
 	    drm_dev_enter(&ptdev->base, &cookie)) {
@@ -471,17 +472,26 @@ int panthor_device_suspend(struct device *dev)
 			drm_dev_exit(cookie);
 		}
 
-		ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_ACTIVE;
-		goto out_unlock;
+		goto err_set_active;
 	}
 
 	clk_disable_unprepare(ptdev->clks.coregroup);
 	clk_disable_unprepare(ptdev->clks.stacks);
 	clk_disable_unprepare(ptdev->clks.core);
-	ptdev->pm.state = PANTHOR_DEVICE_PM_STATE_SUSPENDED;
+	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
+	return 0;
 
-out_unlock:
-	mutex_unlock(&ptdev->pm.lock);
+err_set_active:
+	/* If something failed and we have to revert back to an
+	 * active state, we also need to clear the MMIO userspace
+	 * mappings, so any dumb pages that were mapped while we
+	 * were trying to suspend gets invalidated.
+	 */
+	mutex_lock(&ptdev->pm.mmio_lock);
+	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_ACTIVE);
+	unmap_mapping_range(ptdev->base.anon_inode->i_mapping,
+			    DRM_PANTHOR_USER_MMIO_OFFSET, 0, 1);
+	mutex_unlock(&ptdev->pm.mmio_lock);
 	return ret;
 }
 #endif
