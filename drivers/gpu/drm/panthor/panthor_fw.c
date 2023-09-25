@@ -548,7 +548,7 @@ panthor_fw_alloc_queue_iface_mem(struct panthor_device *ptdev,
 	struct panthor_fw_mem *mem;
 	void *kmap;
 
-	mem = panthor_fw_mem_alloc(ptdev, 8192,
+	mem = panthor_fw_mem_alloc(ptdev, SZ_8K,
 				   DRM_PANTHOR_BO_NO_MMAP,
 				   DRM_PANTHOR_VM_BIND_OP_MAP_NOEXEC |
 				   DRM_PANTHOR_VM_BIND_OP_MAP_UNCACHED,
@@ -564,7 +564,7 @@ panthor_fw_alloc_queue_iface_mem(struct panthor_device *ptdev,
 
 	memset(kmap, 0, mem->bo->base.base.size);
 	*input = kmap;
-	*output = kmap + 4096;
+	*output = kmap + SZ_4K;
 	return mem;
 }
 
