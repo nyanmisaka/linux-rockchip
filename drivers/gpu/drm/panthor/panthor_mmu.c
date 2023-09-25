@@ -44,9 +44,6 @@ struct panthor_vm;
 struct panthor_as_slot {
 	/** @vm: VM bound to this slot. NULL is no VM is bound. */
 	struct panthor_vm *vm;
-
-	/** @lock: Lock used to serialize access to the AS registers. */
-	spinlock_t lock;
 };
 
 /**
@@ -562,6 +559,8 @@ static void lock_region(struct panthor_device *ptdev, u32 as_nr,
 static int mmu_hw_do_operation_locked(struct panthor_device *ptdev, int as_nr,
 				      u64 iova, u64 size, u32 op)
 {
+	lockdep_assert_held(&ptdev->mmu->as.slots_lock);
+
 	if (as_nr < 0)
 		return 0;
 
@@ -581,9 +580,10 @@ static int mmu_hw_do_operation(struct panthor_vm *vm,
 	struct panthor_device *ptdev = vm->ptdev;
 	int ret;
 
-	spin_lock(&ptdev->mmu->as.slots[vm->as.id].lock);
+	mutex_lock(&ptdev->mmu->as.slots_lock);
 	ret = mmu_hw_do_operation_locked(ptdev, vm->as.id, iova, size, op);
-	spin_unlock(&ptdev->mmu->as.slots[vm->as.id].lock);
+	mutex_unlock(&ptdev->mmu->as.slots_lock);
+
 	return ret;
 }
 
@@ -2484,9 +2484,6 @@ int panthor_mmu_init(struct panthor_device *ptdev)
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&mmu->as.lru_list);
-
-	for (u32 i = 0; i < ARRAY_SIZE(mmu->as.slots); i++)
-		spin_lock_init(&mmu->as.slots[i].lock);
 
 	drmm_mutex_init(&ptdev->base, &mmu->as.slots_lock);
 	INIT_LIST_HEAD(&mmu->vm.list);
