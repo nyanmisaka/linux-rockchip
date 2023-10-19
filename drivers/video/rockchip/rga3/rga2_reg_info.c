@@ -2108,8 +2108,29 @@ static void rga_cmd_to_rga2_cmd(struct rga_scheduler_t *scheduler,
 					req->alpha_config.bg_global_alpha_value = 0xff;
 				}
 			} else {
-				req->alpha_config.bg_global_alpha_value = 0xff;
-				req->alpha_config.bg_global_alpha_value = 0xff;
+				req->alpha_config.fg_global_alpha_en = false;
+				req->alpha_config.bg_global_alpha_en = false;
+
+				req->alpha_config.fg_global_alpha_value =
+					req_rga->alpha_global_value;
+				req->alpha_config.bg_global_alpha_value =
+					req_rga->alpha_global_value;
+
+				if (req_rga->PD_mode == 3) {
+					if ((req_rga->alpha_rop_mode & 3) == 0) {
+						/* both use globalAlpha. */
+						req->alpha_config.fg_global_alpha_en = true;
+						req->alpha_config.bg_global_alpha_en = true;
+					} else if ((req_rga->alpha_rop_mode & 3) == 1) {
+						/* Do not use globalAlpha. */
+						req->alpha_config.fg_global_alpha_en = false;
+						req->alpha_config.bg_global_alpha_en = false;
+					} else {
+						/* dst use globalAlpha */
+						req->alpha_config.fg_global_alpha_en = false;
+						req->alpha_config.bg_global_alpha_en = true;
+					}
+				}
 			}
 
 			req->alpha_config.mode = req_rga->PD_mode;
