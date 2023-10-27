@@ -1554,6 +1554,9 @@ static void panthor_mmu_irq_handler(struct panthor_device *ptdev, u32 status)
 		ptdev->mmu->irq.mask = new_int_mask;
 		gpu_write(ptdev, MMU_INT_MASK, new_int_mask);
 
+		if (ptdev->mmu->as.slots[as].vm)
+			ptdev->mmu->as.slots[as].vm->unhandled_fault = true;
+
 		/* Disable the MMU to kill jobs on this AS. */
 		panthor_mmu_as_disable(ptdev, as);
 		mutex_unlock(&ptdev->mmu->as.slots_lock);
