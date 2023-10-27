@@ -792,10 +792,8 @@ err_put_syncwait_obj:
 	return NULL;
 }
 
-static void group_free_queue(struct panthor_group *group, u32 idx)
+static void group_free_queue(struct panthor_group *group, struct panthor_queue *queue)
 {
-	struct panthor_queue *queue = group->queues[idx];
-
 	if (IS_ERR_OR_NULL(queue))
 		return;
 
@@ -823,7 +821,7 @@ static void group_release_work(struct work_struct *work)
 	u32 i;
 
 	for (i = 0; i < group->queue_count; i++)
-		group_free_queue(group, i);
+		group_free_queue(group, group->queues[i]);
 
 	if (group->suspend_buf)
 		panthor_kernel_bo_destroy(panthor_fw_vm(ptdev), group->suspend_buf);
@@ -2902,12 +2900,12 @@ group_create_queue(struct panthor_group *group,
 						  PANTHOR_VM_KERNEL_AUTO_VA);
 	if (IS_ERR(queue->ringbuf)) {
 		ret = PTR_ERR(queue->ringbuf);
-		goto out;
+		goto err_free_queue;
 	}
 
 	ret = panthor_kernel_bo_vmap(queue->ringbuf);
 	if (ret)
-		goto out;
+		goto err_free_queue;
 
 	queue->iface.mem = panthor_fw_alloc_queue_iface_mem(group->ptdev,
 							    &queue->iface.input,
@@ -2916,7 +2914,7 @@ group_create_queue(struct panthor_group *group,
 							    &queue->iface.output_fw_va);
 	if (IS_ERR(queue->iface.mem)) {
 		ret = PTR_ERR(queue->iface.mem);
-		goto out;
+		goto err_free_queue;
 	}
 
 	ret = drm_sched_init(&queue->scheduler, &panthor_queue_sched_ops,
@@ -2927,17 +2925,17 @@ group_create_queue(struct panthor_group *group,
 			     NULL, "panthor-queue", DRM_SCHED_POLICY_SINGLE_ENTITY,
 			     group->ptdev->base.dev);
 	if (ret)
-		goto out;
+		goto err_free_queue;
 
 	drm_sched = &queue->scheduler;
 	ret = drm_sched_entity_init(&queue->entity, DRM_SCHED_PRIORITY_NORMAL,
 				    &drm_sched, 1, NULL);
 
-out:
-	if (ret)
-		return ERR_PTR(ret);
-
 	return queue;
+
+err_free_queue:
+	group_free_queue(group, queue);
+	return ERR_PTR(ret);
 }
 
 #define MAX_GROUPS_PER_POOL		128
