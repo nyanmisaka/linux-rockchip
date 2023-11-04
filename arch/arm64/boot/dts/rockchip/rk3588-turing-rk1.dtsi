@@ -273,6 +273,12 @@
 		};
 	};
 
+	emmc {
+		emmc_data_strobe: emmc-data-strobe {
+			rockchip,pins = <2 RK_PA2 1 &pcfg_pull_down>;
+		};
+	};
+
 	rtl8211f {
 		rtl8211f_rst: rtl8211f-rst {
 			rockchip,pins = <3 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -291,6 +297,8 @@
 	non-removable;
 	mmc-hs400-1_8v;
 	mmc-hs400-enhanced-strobe;
+	pinctrl-names = "default";
+	pinctrl-0 = <&emmc_data_strobe>;
 	status = "okay";
 };
 
