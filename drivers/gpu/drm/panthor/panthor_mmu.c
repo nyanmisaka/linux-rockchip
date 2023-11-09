@@ -267,9 +267,6 @@ struct panthor_vm {
 	/** @ptdev: Device. */
 	struct panthor_device *ptdev;
 
-	/** @refcount: Reference count. */
-	struct kref refcount;
-
 	/** @memattr: Value to program to the AS_MEMATTR register. */
 	u64 memattr;
 
@@ -1682,9 +1679,9 @@ void panthor_mmu_post_reset(struct panthor_device *ptdev)
 	mutex_unlock(&ptdev->mmu->vm.lock);
 }
 
-static void panthor_vm_release(struct kref *kref)
+static void panthor_vm_free(struct drm_gpuvm *gpuvm)
 {
-	struct panthor_vm *vm = container_of(kref, struct panthor_vm, refcount);
+	struct panthor_vm *vm = container_of(gpuvm, struct panthor_vm, base);
 	struct panthor_device *ptdev = vm->ptdev;
 
 	mutex_lock(&vm->heaps.lock);
@@ -1722,15 +1719,9 @@ static void panthor_vm_release(struct kref *kref)
 	}
 	mutex_unlock(&ptdev->mmu->as.slots_lock);
 
-	drm_WARN_ON(&ptdev->base,
-		    panthor_vm_unmap_range(vm, vm->base.mm_start, vm->base.mm_range));
-
 	free_io_pgtable_ops(vm->pgtbl_ops);
 
 	drm_mm_takedown(&vm->mm);
-	mutex_destroy(&vm->mm_lock);
-	drm_gpuvm_destroy(&vm->base);
-	mutex_destroy(&vm->op_lock);
 	kfree(vm);
 }
 
@@ -1740,8 +1731,8 @@ static void panthor_vm_release(struct kref *kref)
  */
 void panthor_vm_put(struct panthor_vm *vm)
 {
-	if (vm)
-		kref_put(&vm->refcount, panthor_vm_release);
+	static_assert(offsetof(struct panthor_vm, base) == 0);
+	drm_gpuvm_put(&vm->base);
 }
 
 /**
@@ -1753,7 +1744,7 @@ void panthor_vm_put(struct panthor_vm *vm)
 struct panthor_vm *panthor_vm_get(struct panthor_vm *vm)
 {
 	if (vm)
-		kref_get(&vm->refcount);
+		drm_gpuvm_get(&vm->base);
 
 	return vm;
 }
@@ -1973,6 +1964,7 @@ static int panthor_gpuva_sm_step_unmap(struct drm_gpuva_op *op,
 }
 
 static const struct drm_gpuvm_ops panthor_gpuvm_ops = {
+	.vm_free = panthor_vm_free,
 	.sm_step_map = panthor_gpuva_sm_step_map,
 	.sm_step_remap = panthor_gpuva_sm_step_remap,
 	.sm_step_unmap = panthor_gpuva_sm_step_unmap,
@@ -2135,8 +2127,14 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	if (!vm)
 		return ERR_PTR(-ENOMEM);
 
+	/* We allocate a dummy GEM for the VM. */
+	dummy_gem = drm_gpuvm_resv_object_alloc(&ptdev->base);
+	if (!dummy_gem) {
+		ret = -ENOMEM;
+		goto err_free_vm;
+	}
+
 	mutex_init(&vm->heaps.lock);
-	kref_init(&vm->refcount);
 	vm->for_mcu = for_mcu;
 	vm->ptdev = ptdev;
 	mutex_init(&vm->op_lock);
@@ -2150,26 +2148,11 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 		va_range = full_va_range;
 	}
 
-	/* We allocate a dummy GEM for the VM. */
-	dummy_gem = drm_gpuvm_root_object_alloc(&ptdev->base);
-	if (!dummy_gem) {
-		ret = -ENOMEM;
-		goto err_free_vm;
-	}
-
 	mutex_init(&vm->mm_lock);
 	drm_mm_init(&vm->mm, kernel_va_start, kernel_va_size);
 	vm->kernel_auto_va.start = auto_kernel_va_start;
 	vm->kernel_auto_va.end = vm->kernel_auto_va.start + auto_kernel_va_size - 1;
 
-	/* We intentionally leave the reserved range to zero, because we want kernel VMAs
-	 * to be handled the same way user VMAs are.
-	 */
-	drm_gpuvm_init(&vm->base, dummy_gem,
-		       for_mcu ? "panthor-MCU-VM" : "panthor-GPU-VM",
-		       0, min_va, va_range, 0, 0,
-		       &panthor_gpuvm_ops);
-	drm_gem_object_put(dummy_gem);
 	INIT_LIST_HEAD(&vm->node);
 	INIT_LIST_HEAD(&vm->as.lru_node);
 	vm->as.id = -1;
@@ -2188,7 +2171,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	vm->pgtbl_ops = alloc_io_pgtable_ops(ARM_64_LPAE_S1, &pgtbl_cfg, vm);
 	if (!vm->pgtbl_ops) {
 		ret = -EINVAL;
-		goto err_gpuvm_destroy;
+		goto err_mm_takedown;
 	}
 
 	/* Bind operations are synchronous for now, no timeout needed. */
@@ -2216,6 +2199,14 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 		panthor_vm_stop(vm);
 	mutex_unlock(&ptdev->mmu->vm.lock);
 
+	/* We intentionally leave the reserved range to zero, because we want kernel VMAs
+	 * to be handled the same way user VMAs are.
+	 */
+	drm_gpuvm_init(&vm->base,
+		       for_mcu ? "panthor-MCU-VM" : "panthor-GPU-VM",
+		       0, &ptdev->base, dummy_gem, min_va, va_range, 0, 0,
+		       &panthor_gpuvm_ops);
+	drm_gem_object_put(dummy_gem);
 	return vm;
 
 err_sched_fini:
@@ -2224,13 +2215,12 @@ err_sched_fini:
 err_free_io_pgtable:
 	free_io_pgtable_ops(vm->pgtbl_ops);
 
-err_gpuvm_destroy:
+err_mm_takedown:
 	drm_mm_takedown(&vm->mm);
-	drm_gpuvm_destroy(&vm->base);
+	drm_gem_object_put(dummy_gem);
 
 err_free_vm:
 	kfree(vm);
-
 	return ERR_PTR(ret);
 }
 
