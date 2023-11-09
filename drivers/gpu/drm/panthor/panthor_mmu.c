@@ -2192,15 +2192,15 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	}
 
 	/* Bind operations are synchronous for now, no timeout needed. */
-	ret = drm_sched_init(&vm->sched, &panthor_vm_bind_ops, ptdev->mmu->vm.wq, 1, 0,
+	ret = drm_sched_init(&vm->sched, &panthor_vm_bind_ops, ptdev->mmu->vm.wq,
+			     DRM_SCHED_PRIORITY_MIN + 1, 1, 0,
 			     MAX_SCHEDULE_TIMEOUT, NULL, NULL,
-			     "panthor-vm-bind", DRM_SCHED_POLICY_SINGLE_ENTITY,
-			     ptdev->base.dev);
+			     "panthor-vm-bind", ptdev->base.dev);
 	if (ret)
 		goto err_free_io_pgtable;
 
 	sched = &vm->sched;
-	ret = drm_sched_entity_init(&vm->entity, DRM_SCHED_PRIORITY_NORMAL,
+	ret = drm_sched_entity_init(&vm->entity, DRM_SCHED_PRIORITY_MIN,
 				    &sched, 1, NULL);
 	if (ret)
 		goto err_sched_fini;
