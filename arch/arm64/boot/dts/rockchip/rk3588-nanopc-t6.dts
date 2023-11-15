@@ -208,6 +208,11 @@
 	cpu-supply = <&vdd_cpu_big1_s0>;
 };
 
+&display_subsystem {
+	clocks = <&hdptxphy_hdmi_clk0>;
+	clock-names = "hdmi0_phy_pll";
+};
+
 &gpio0 {
 	gpio-line-names = /* GPIO0 A0-A7 */
 			  "", "", "", "",
@@ -936,6 +941,10 @@
 };
 
 &vop_mmu {
+	status = "okay";
+};
+
+&hdptxphy_hdmi_clk0 {
 	status = "okay";
 };
 
