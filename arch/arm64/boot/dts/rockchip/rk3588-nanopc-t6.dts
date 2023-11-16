@@ -394,22 +394,22 @@
 
 				port@0 {
 					reg = <0>;
-					usbc0_hs: endpoint {
-						remote-endpoint = <&usb_host0_xhci_drd_sw>;
+					usbc0_orien_sw: endpoint {
+						remote-endpoint = <&usbdp_phy0_orientation_switch>;
 					};
 				};
 
 				port@1 {
 					reg = <1>;
-					usbc0_ss: endpoint {
-						remote-endpoint = <&usbdp_phy0_typec_ss>;
+					usbc0_role_sw: endpoint {
+						remote-endpoint = <&usb_host0_xhci_role_switch>;
 					};
 				};
 
 				port@2 {
 					reg = <2>;
-					usbc0_sbu: endpoint {
-						remote-endpoint = <&usbdp_phy0_typec_sbu>;
+					usbc0_dp_altmode_mux: endpoint {
+						remote-endpoint = <&usbdp_phy0_dp_altmode_mux>;
 					};
 				};
 			};
@@ -968,14 +968,14 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		usbdp_phy0_typec_ss: endpoint@0 {
+		usbdp_phy0_orientation_switch: endpoint@0 {
 			reg = <0>;
-			remote-endpoint = <&usbc0_ss>;
+			remote-endpoint = <&usbc0_orien_sw>;
 		};
 
-		usbdp_phy0_typec_sbu: endpoint@1 {
+		usbdp_phy0_dp_altmode_mux: endpoint@1 {
 			reg = <1>;
-			remote-endpoint = <&usbc0_sbu>;
+			remote-endpoint = <&usbc0_dp_altmode_mux>;
 		};
 	};
 };
@@ -993,6 +993,7 @@
 };
 
 &usb_host0_xhci {
+	dr_mode = "otg";
 	usb-role-switch;
 	status = "okay";
 
@@ -1000,8 +1001,9 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		usb_host0_xhci_drd_sw: endpoint {
-			remote-endpoint = <&usbc0_hs>;
+		usb_host0_xhci_role_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_role_sw>;
 		};
 	};
 };
