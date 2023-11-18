@@ -1,0 +1,22 @@
+Source: linux-rockchip-6.1
+Section: kernel
+Priority: optional
+Maintainer: nyanmisaka <nst799610810@gmail.com>
+Standards-Version: 4.6.0
+Build-Depends: bc, rsync, kmod, cpio, build-essential, u-boot-tools, bison, python3 | python, python-is-python3 | python-is-python2, flex | flex:native , , libssl-dev:native
+Vcs-Git: https://github.com/nyanmisaka/linux-rockchip.git
+
+Package: linux-image-6.1.25-rockchip
+Architecture: arm64
+Description: Linux kernel image for version 6.1.25 on arm64
+ This package contains the Linux kernel image for version 6.1.25 arm64.
+
+Package: linux-headers-6.1.25-rockchip
+Architecture: arm64
+Description: Linux kernel headers for version 6.1.25 on arm64
+ This package contains the Linux kernel headers for version 6.1.25 arm64.
+
+Package: linux-libc-dev
+Architecture: arm64
+Description: Linux kernel headers for development for version 6.1.25 on arm64
+ This package contains the Linux kernel headers for development for version 6.1.25 arm64.
