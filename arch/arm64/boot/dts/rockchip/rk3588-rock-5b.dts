@@ -6,6 +6,7 @@
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/usb/pd.h>
 #include "rk3588.dtsi"
+#include "rk3588-mpp.dtsi"
 
 / {
 	model = "Radxa ROCK 5 Model B";
@@ -954,4 +955,56 @@
 
 &vop {
 	status = "okay";
+};
+
+&vdpu {
+    status = "okay";
+};
+
+&vdpu_mmu {
+    status = "okay";
+};
+
+&mpp_srv {
+    status = "okay";
+};
+
+&rkvdec_ccu {
+    status = "okay";
+};
+
+&rkvdec0 {
+    status = "okay";
+};
+
+&rkvdec0_mmu {
+    status = "okay";
+};
+
+&rkvdec1 {
+    status = "okay";
+};
+
+&rkvdec1_mmu {
+    status = "okay";
+};
+
+&rkvenc_ccu {
+    status = "okay";
+};
+
+&rkvenc0 {
+    status = "okay";
+};
+
+&rkvenc0_mmu {
+    status = "okay";
+};
+
+&rkvenc1 {
+    status = "okay";
+};
+
+&rkvenc1_mmu {
+    status = "okay";
 };
