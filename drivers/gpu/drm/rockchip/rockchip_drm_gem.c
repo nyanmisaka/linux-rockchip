@@ -546,10 +546,6 @@ static int rockchip_drm_gem_object_mmap(struct drm_gem_object *obj,
 	int ret;
 	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
 
-	/* default is wc. */
-	if (rk_obj->flags & ROCKCHIP_BO_CACHABLE)
-		vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
-
 	/*
 	 * Set vm_pgoff (used as a fake buffer offset by DRM) to 0 and map the
 	 * whole buffer from the start.
@@ -565,6 +561,10 @@ static int rockchip_drm_gem_object_mmap(struct drm_gem_object *obj,
 
 	vma->vm_page_prot = pgprot_writecombine(vm_get_page_prot(vma->vm_flags));
 	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
+
+        /* default is wc. */
+        if (rk_obj->flags & ROCKCHIP_BO_CACHABLE)
+                vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 
 	if (rk_obj->buf_type == ROCKCHIP_GEM_BUF_TYPE_SECURE) {
 		DRM_ERROR("Disallow mmap for secure buffer\n");
