@@ -274,9 +274,10 @@ static void *cma_heap_do_vmap(struct cma_heap_buffer *buffer)
 	return vaddr;
 }
 
-static void *cma_heap_vmap(struct dma_buf *dmabuf)
+static int cma_heap_vmap(struct dma_buf *dmabuf, struct iosys_map *map)
 {
 	struct cma_heap_buffer *buffer = dmabuf->priv;
+	int ret = 0;
 	void *vaddr;
 
 	mutex_lock(&buffer->lock);
@@ -287,18 +288,20 @@ static void *cma_heap_vmap(struct dma_buf *dmabuf)
 	}
 
 	vaddr = cma_heap_do_vmap(buffer);
-	if (IS_ERR(vaddr))
+	if (IS_ERR(vaddr)){
+	    ret = -EFAULT;
 		goto out;
-
+	}
 	buffer->vaddr = vaddr;
 	buffer->vmap_cnt++;
 out:
 	mutex_unlock(&buffer->lock);
 
-	return vaddr;
+	iosys_map_set_vaddr(map, vaddr);
+	return ret;
 }
 
-static void cma_heap_vunmap(struct dma_buf *dmabuf, void *vaddr)
+static void cma_heap_vunmap(struct dma_buf *dmabuf, struct iosys_map *map)
 {
 	struct cma_heap_buffer *buffer = dmabuf->priv;
 
