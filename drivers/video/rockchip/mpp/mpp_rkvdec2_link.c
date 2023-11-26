@@ -11,7 +11,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
 #include <soc/rockchip/pm_domains.h>
-#include <soc/rockchip/rockchip_dmc.h>
+//#include <soc/rockchip/rockchip_dmc.h>
 #include <soc/rockchip/rockchip_iommu.h>
 
 #include "mpp_rkvdec2_link.h"
@@ -1576,9 +1576,9 @@ static int rkvdec2_soft_ccu_reset(struct mpp_taskqueue *queue,
 
 		if (IS_REACHABLE(CONFIG_ROCKCHIP_SIP)) {
 			/* sip reset */
-			rockchip_dmcfreq_lock();
+			//rockchip_dmcfreq_lock();
 			sip_smc_vpu_reset(i, 0, 0);
-			rockchip_dmcfreq_unlock();
+			//rockchip_dmcfreq_unlock();
 		} else {
 			rkvdec2_reset(mpp);
 		}
@@ -2139,9 +2139,9 @@ static int rkvdec2_hard_ccu_reset(struct mpp_taskqueue *queue, struct rkvdec2_cc
 			// rkvdec2_reset(mpp);
 		}
 #if IS_ENABLED(CONFIG_ROCKCHIP_SIP)
-		rockchip_dmcfreq_lock();
+		//rockchip_dmcfreq_lock();
 		sip_smc_vpu_reset(i, 0, 0);
-		rockchip_dmcfreq_unlock();
+		//rockchip_dmcfreq_unlock();
 #else
 		rkvdec2_reset(mpp);
 #endif
