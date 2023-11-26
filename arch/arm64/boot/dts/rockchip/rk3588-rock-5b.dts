@@ -7,6 +7,7 @@
 #include <dt-bindings/usb/pd.h>
 #include "rk3588.dtsi"
 #include "rk3588-mpp.dtsi"
+#include "rk3588-rga-multi.dtsi"
 
 / {
 	model = "Radxa ROCK 5 Model B";
@@ -1006,5 +1007,25 @@
 };
 
 &rkvenc1_mmu {
+    status = "okay";
+};
+
+&rga3_core0 {
+    status = "okay";
+};
+
+&rga3_0_mmu {
+    status = "okay";
+};
+
+&rga3_core1 {
+    status = "okay";
+};
+
+&rga3_1_mmu {
+    status = "okay";
+};
+
+&rga2 {
     status = "okay";
 };
