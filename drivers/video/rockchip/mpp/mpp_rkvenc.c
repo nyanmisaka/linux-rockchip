@@ -28,17 +28,17 @@
 #include <linux/workqueue.h>
 #include <soc/rockchip/pm_domains.h>
 #include <soc/rockchip/rockchip_iommu.h>
-#include <soc/rockchip/rockchip_ipa.h>
-#include <soc/rockchip/rockchip_opp_select.h>
-#include <soc/rockchip/rockchip_system_monitor.h>
-
-#ifdef CONFIG_PM_DEVFREQ
-#include "../../../devfreq/governor.h"
-#endif
+//#include <soc/rockchip/rockchip_ipa.h>
+//#include <soc/rockchip/rockchip_opp_select.h>
+//#include <soc/rockchip/rockchip_system_monitor.h>
 
 #include "mpp_debug.h"
 #include "mpp_iommu.h"
 #include "mpp_common.h"
+
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
+#include "../../../devfreq/governor.h"
+#endif
 
 #define RKVENC_DRIVER_NAME			"mpp_rkvenc"
 
@@ -191,7 +191,7 @@ struct rkvenc_dev {
 	struct reset_control *rst_h;
 	struct reset_control *rst_core;
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	struct regulator *vdd;
 	struct devfreq *devfreq;
 	unsigned long volt;
@@ -843,7 +843,7 @@ static inline int rkvenc_dump_session(struct mpp_session *session, struct seq_fi
 }
 #endif
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 static int rkvenc_devfreq_target(struct device *dev,
 				 unsigned long *freq, u32 flags)
 {
@@ -1169,7 +1169,7 @@ static int rkvenc_init(struct mpp_dev *mpp)
 	if (!enc->rst_core)
 		mpp_err("No core reset resource define\n");
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	ret = rkvenc_devfreq_init(mpp);
 	if (ret)
 		mpp_err("failed to add venc devfreq\n");
@@ -1199,7 +1199,7 @@ static int rkvenc_exit(struct mpp_dev *mpp)
 {
 	struct rkvenc_dev *enc = to_rkvenc_dev(mpp);
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	rkvenc_devfreq_remove(mpp);
 #endif
 
@@ -1225,7 +1225,7 @@ static int rkvenc_reset(struct mpp_dev *mpp)
 
 	mpp_debug_enter();
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	if (enc->devfreq)
 		mutex_lock(&enc->devfreq->lock);
 #endif
@@ -1250,7 +1250,7 @@ static int rkvenc_reset(struct mpp_dev *mpp)
 		mpp_safe_unreset(enc->rst_core);
 		mpp_pmu_idle_request(mpp, false);
 	}
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	if (enc->devfreq)
 		mutex_unlock(&enc->devfreq->lock);
 #endif
@@ -1326,7 +1326,7 @@ static int rkvenc_set_freq(struct mpp_dev *mpp,
 
 	mpp_clk_set_rate(&enc->aclk_info, task->clk_mode);
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	if (enc->devfreq) {
 		unsigned long core_rate_hz;
 

@@ -30,7 +30,7 @@
 
 #include <soc/rockchip/pm_domains.h>
 #include <soc/rockchip/rockchip_sip.h>
-#include <soc/rockchip/rockchip_opp_select.h>
+//#include <soc/rockchip/rockchip_opp_select.h>
 
 #include "mpp_debug.h"
 #include "mpp_common.h"
@@ -176,7 +176,7 @@ struct rkvdec_dev {
 
 	unsigned long aux_iova;
 	struct page *aux_page;
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	struct regulator *vdd;
 	struct devfreq *devfreq;
 	struct devfreq *parent_devfreq;
@@ -254,7 +254,7 @@ static struct mpp_trans_info rkvdec_v1_trans[] = {
 	},
 };
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 static int rkvdec_devf_set_clk(struct rkvdec_dev *dec,
 			       unsigned long aclk_rate_hz,
 			       unsigned long core_rate_hz,
@@ -1220,7 +1220,7 @@ static int rkvdec_3328_iommu_hdl(struct iommu_domain *iommu,
 	return ret;
 }
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 static int rkvdec_devfreq_remove(struct mpp_dev *mpp)
 {
 	struct rkvdec_dev *dec = to_rkvdec_dev(mpp);
@@ -1512,7 +1512,7 @@ static int rkvdec_3328_set_freq(struct mpp_dev *mpp,
 	struct rkvdec_dev *dec = to_rkvdec_dev(mpp);
 	struct rkvdec_task *task =  to_rkvdec_task(mpp_task);
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	if (dec->devfreq) {
 		struct devfreq_dev_status *stat;
 		unsigned long aclk_rate_hz, core_rate_hz, cabac_rate_hz;
@@ -1555,7 +1555,7 @@ static int rkvdec_3328_reduce_freq(struct mpp_dev *mpp)
 {
 	struct rkvdec_dev *dec = to_rkvdec_dev(mpp);
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	if (dec->devfreq) {
 		struct devfreq_dev_status *stat;
 		unsigned long aclk_rate_hz, core_rate_hz, cabac_rate_hz;

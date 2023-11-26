@@ -28,9 +28,9 @@
 #include <linux/nospec.h>
 #include <linux/workqueue.h>
 #include <soc/rockchip/pm_domains.h>
-#include <soc/rockchip/rockchip_ipa.h>
-#include <soc/rockchip/rockchip_opp_select.h>
-#include <soc/rockchip/rockchip_system_monitor.h>
+//#include <soc/rockchip/rockchip_ipa.h>
+//#include <soc/rockchip/rockchip_opp_select.h>
+//#include <soc/rockchip/rockchip_system_monitor.h>
 #include <soc/rockchip/rockchip_iommu.h>
 
 #include "mpp_debug.h"
@@ -293,7 +293,7 @@ struct rkvenc_dev {
 
 	u32 bs_overflow;
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	struct rockchip_opp_info opp_info;
 	struct monitor_dev_info *mdev_info;
 #endif
@@ -1732,7 +1732,7 @@ static inline int rkvenc_procfs_ccu_init(struct mpp_dev *mpp)
 }
 #endif
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 static int rk3588_venc_set_read_margin(struct device *dev,
 				       struct rockchip_opp_info *opp_info,
 				       u32 rm)
@@ -1846,7 +1846,7 @@ static int rkvenc_init(struct mpp_dev *mpp)
 	if (!enc->rst_core)
 		mpp_err("No core reset resource define\n");
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	ret = rkvenc_devfreq_init(mpp);
 	if (ret)
 		mpp_err("failed to add venc devfreq\n");
@@ -1857,7 +1857,7 @@ static int rkvenc_init(struct mpp_dev *mpp)
 
 static int rkvenc_exit(struct mpp_dev *mpp)
 {
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	rkvenc_devfreq_remove(mpp);
 #endif
 

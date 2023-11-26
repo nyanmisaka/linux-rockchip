@@ -18,11 +18,11 @@
 #include "hack/mpp_rkvdec2_hack_rk3568.c"
 
 //#include <soc/rockchip/rockchip_dmc.h>
-#include <soc/rockchip/rockchip_opp_select.h>
+//#include <soc/rockchip/rockchip_opp_select.h>
 //#include <soc/rockchip/rockchip_system_monitor.h>
 #include <soc/rockchip/rockchip_iommu.h>
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 #include "../drivers/devfreq/governor.h"
 #endif
 
@@ -704,7 +704,7 @@ static inline int rkvdec2_procfs_init(struct mpp_dev *mpp)
 }
 #endif
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 static int rkvdec2_devfreq_target(struct device *dev,
 				  unsigned long *freq, u32 flags)
 {

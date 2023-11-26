@@ -24,7 +24,7 @@
 #include <linux/regulator/consumer.h>
 
 #include <soc/rockchip/pm_domains.h>
-#include <soc/rockchip/rockchip_opp_select.h>
+//#include <soc/rockchip/rockchip_opp_select.h>
 #include <soc/rockchip/rockchip_sip.h>
 
 #include "mpp_debug.h"
@@ -190,7 +190,7 @@ struct rkvdec2_dev {
 	struct reset_control *rst_cabac;
 	struct reset_control *rst_hevc_cabac;
 
-#ifdef CONFIG_PM_DEVFREQ
+#if (defined CONFIG_PM_DEVFREQ) && USE_DEVFREQ
 	struct regulator *vdd;
 	struct devfreq *devfreq;
 	unsigned long volt;
