@@ -262,7 +262,18 @@ struct shrinker pool_shrinker = {
 
 static int dmabuf_page_pool_init_shrinker(void)
 {
-    return register_shrinker(&pool_shrinker);
+    struct shrinker *pool_shrinker = NULL;
+    pool_shrinker = shrinker_alloc(0, "rk-page-pool");
+    if (!pool_shrinker)
+        return -ENOMEM;
+
+    pool_shrinker->count_objects = dmabuf_page_pool_shrink_count;
+    pool_shrinker->scan_objects = dmabuf_page_pool_shrink_scan;
+    pool_shrinker->seeks = DEFAULT_SEEKS;
+    pool_shrinker->batch = 0;
+
+    shrinker_register(pool_shrinker);
+    return 0;
 }
 module_init(dmabuf_page_pool_init_shrinker);
 MODULE_LICENSE("GPL v2");
