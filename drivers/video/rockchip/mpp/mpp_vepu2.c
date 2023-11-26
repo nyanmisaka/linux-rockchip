@@ -1018,13 +1018,13 @@ static const struct of_device_id mpp_vepu2_dt_match[] = {
 		.compatible = "rockchip,vpu-encoder-v2",
 		.data = &vepu_v2_data,
 	},
-#ifdef CONFIG_CPU_PX30
+//#ifdef CONFIG_CPU_PX30
 	{
 		.compatible = "rockchip,vpu-encoder-px30",
 		.data = &vepu_px30_data,
 	},
-#endif
-#ifdef CONFIG_CPU_RK3588
+//#endif
+//#ifdef CONFIG_CPU_RK3588
 	{
 		.compatible = "rockchip,vpu-jpege-core",
 		.data = &vepu_ccu_data,
@@ -1032,7 +1032,7 @@ static const struct of_device_id mpp_vepu2_dt_match[] = {
 	{
 		.compatible = "rockchip,vpu-jpege-ccu",
 	},
-#endif
+//#endif
 	{},
 };
 

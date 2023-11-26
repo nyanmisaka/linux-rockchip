@@ -9,7 +9,7 @@
 #ifndef __ROCKCHIP_MPP_HACK_PX30_H__
 #define __ROCKCHIP_MPP_HACK_PX30_H__
 
-#ifdef CONFIG_CPU_PX30
+#ifdef CONFIG_MPP_PX30_HACK
 int px30_workaround_combo_init(struct mpp_dev *mpp);
 int px30_workaround_combo_switch_grf(struct mpp_dev *mpp);
 #else

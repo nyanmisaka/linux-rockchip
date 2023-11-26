@@ -870,24 +870,24 @@ static const struct of_device_id mpp_vdpu1_dt_match[] = {
 		.compatible = "rockchip,vpu-decoder-v1",
 		.data = &vdpu_v1_data,
 	},
-#ifdef CONFIG_CPU_RK3288
+//#ifdef CONFIG_CPU_RK3288
 	{
 		.compatible = "rockchip,vpu-decoder-rk3288",
 		.data = &vdpu_3288_data,
 	},
-#endif
-#ifdef CONFIG_CPU_RK3036
+//#endif
+//#ifdef CONFIG_CPU_RK3036
 	{
 		.compatible = "rockchip,vpu-decoder-rk3036",
 		.data = &vdpu_3036_data,
 	},
-#endif
-#ifdef CONFIG_CPU_RK3368
+//#endif
+//#ifdef CONFIG_CPU_RK3368
 	{
 		.compatible = "rockchip,vpu-decoder-rk3368",
 		.data = &vdpu_3368_data,
 	},
-#endif
+//#endif
 	{
 		.compatible = "rockchip,avs-plus-decoder",
 		.data = &avsd_plus_data,

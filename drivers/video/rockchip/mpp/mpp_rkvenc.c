@@ -986,7 +986,7 @@ static const struct rockchip_opp_data __maybe_unused rv1126_rkvenc_opp_data = {
 };
 
 static const struct of_device_id rockchip_rkvenc_of_match[] = {
-#ifdef CONFIG_CPU_RV1126
+//#ifdef CONFIG_CPU_RV1126
 	{
 		.compatible = "rockchip,rv1109",
 		.data = (void *)&rv1126_rkvenc_opp_data,
@@ -995,7 +995,7 @@ static const struct of_device_id rockchip_rkvenc_of_match[] = {
 		.compatible = "rockchip,rv1126",
 		.data = (void *)&rv1126_rkvenc_opp_data,
 	},
-#endif
+//#endif
 	{},
 };
 
