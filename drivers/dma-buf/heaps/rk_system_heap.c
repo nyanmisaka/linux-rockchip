@@ -740,6 +740,7 @@ static int system_heap_create(void)
 	 *
 	 * FIX: fix the orders[] as a workaround.
 	 */
+	/*
 	if (swiotlb_max_segment()) {
 		unsigned int max_size = (1 << IO_TLB_SHIFT) * IO_TLB_SEGSIZE;
 		int max_order = MAX_ORDER;
@@ -752,7 +753,7 @@ static int system_heap_create(void)
 				orders[i] = max_order;
 			pr_info("system_heap: orders[%d] = %u\n", i, orders[i]);
 		}
-	}
+	}*/
 
 	for (i = 0; i < NUM_ORDERS; i++) {
 		pools[i] = dmabuf_page_pool_create(order_flags[i], orders[i]);
