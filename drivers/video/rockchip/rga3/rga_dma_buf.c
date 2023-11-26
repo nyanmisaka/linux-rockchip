@@ -299,7 +299,7 @@ int rga_iommu_map_sgt(struct sg_table *sgt, size_t size,
 	}
 
 	map_size = iommu_map_sg(domain, iova, sgt->sgl, sgt->orig_nents,
-				rga_dma_info_to_prot(DMA_BIDIRECTIONAL));
+				rga_dma_info_to_prot(DMA_BIDIRECTIONAL), GFP_KERNEL);
 	if (map_size < align_size) {
 		pr_err("iommu can not map sgt to iova");
 		rga_iommu_dma_free_iova(domain, iova, align_size);
@@ -344,7 +344,7 @@ int rga_iommu_map(phys_addr_t paddr, size_t size,
 	}
 
 	ret = iommu_map(domain, iova, paddr, align_size,
-			rga_dma_info_to_prot(DMA_BIDIRECTIONAL));
+			rga_dma_info_to_prot(DMA_BIDIRECTIONAL), GFP_KERNEL);
 	if (ret) {
 		pr_err("iommu can not map phys_addr to iova");
 		rga_iommu_dma_free_iova(domain, iova, align_size);
