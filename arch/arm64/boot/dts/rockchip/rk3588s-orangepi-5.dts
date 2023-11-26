@@ -7,6 +7,8 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/pinctrl/rockchip.h>
 #include "rk3588s.dtsi"
+#include "rk3588-mpp.dtsi"
+#include "rk3588-rga-multi.dtsi"
 
 / {
 	model = "Xunlong Orange Pi 5";
@@ -685,4 +687,76 @@
 
 &vop {
 	status = "okay";
+};
+
+&vdpu {
+    status = "okay";
+};
+
+&vdpu_mmu {
+    status = "okay";
+};
+
+&mpp_srv {
+    status = "okay";
+};
+
+&rkvdec_ccu {
+    status = "okay";
+};
+
+&rkvdec0 {
+    status = "okay";
+};
+
+&rkvdec0_mmu {
+    status = "okay";
+};
+
+&rkvdec1 {
+    status = "okay";
+};
+
+&rkvdec1_mmu {
+    status = "okay";
+};
+
+&rkvenc_ccu {
+    status = "okay";
+};
+
+&rkvenc0 {
+    status = "okay";
+};
+
+&rkvenc0_mmu {
+    status = "okay";
+};
+
+&rkvenc1 {
+    status = "okay";
+};
+
+&rkvenc1_mmu {
+    status = "okay";
+};
+
+&rga3_core0 {
+    status = "okay";
+};
+
+&rga3_0_mmu {
+    status = "okay";
+};
+
+&rga3_core1 {
+    status = "okay";
+};
+
+&rga3_1_mmu {
+    status = "okay";
+};
+
+&rga2 {
+    status = "okay";
 };
