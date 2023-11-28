@@ -11,6 +11,8 @@
 #include <linux/iosys-map.h>
 #include <linux/rwsem.h>
 
+#include "../drm_internal.h"
+
 struct panthor_vm;
 
 /**
@@ -113,8 +115,9 @@ panthor_kernel_bo_vmap(struct panthor_kernel_bo *bo)
 
 	if (bo->kmap)
 		return 0;
-
-	ret = drm_gem_vmap_unlocked(bo->obj, &map);
+	dma_resv_lock(bo->obj->resv, NULL);
+	ret = drm_gem_vmap(bo->obj, &map);
+	dma_resv_unlock(bo->obj->resv);
 	if (ret)
 		return ret;
 
@@ -127,8 +130,9 @@ panthor_kernel_bo_vunmap(struct panthor_kernel_bo *bo)
 {
 	if (bo->kmap) {
 		struct iosys_map map = IOSYS_MAP_INIT_VADDR(bo->kmap);
-
-		drm_gem_vunmap_unlocked(bo->obj, &map);
+		dma_resv_lock(bo->obj->resv, NULL);
+		drm_gem_vunmap(bo->obj, &map);
+		dma_resv_unlock(bo->obj->resv);
 		bo->kmap = NULL;
 	}
 }
