@@ -24,8 +24,6 @@
 #include "panthor_mmu.h"
 #include "panthor_sched.h"
 
-#define CSF_FW_NAME "mali_csffw.bin"
-
 #define PING_INTERVAL_MS			12000
 #define PROGRESS_TIMEOUT_CYCLES			(5ull * 500 * 1024 * 1024)
 #define PROGRESS_TIMEOUT_SCALE_SHIFT		10

@@ -1453,3 +1453,4 @@ module_exit(panthor_exit);
 MODULE_AUTHOR("Panthor Project Developers");
 MODULE_DESCRIPTION("Panthor DRM Driver");
 MODULE_LICENSE("Dual MIT/GPL");
+MODULE_FIRMWARE(CSF_FW_NAME);

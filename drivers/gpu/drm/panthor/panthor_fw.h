@@ -8,6 +8,8 @@
 
 #include "panthor_device.h"
 
+#define CSF_FW_NAME "mali_csffw.bin"
+
 struct panthor_kernel_bo;
 
 #define MAX_CSGS				31
