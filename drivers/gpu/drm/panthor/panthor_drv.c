@@ -1348,6 +1348,8 @@ static const struct drm_driver panthor_drm_driver = {
 	.minor = 0,
 
 	.gem_create_object = panthor_gem_create_object,
+	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
+	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_import_sg_table = drm_gem_shmem_prime_import_sg_table,
 #ifdef CONFIG_DEBUG_FS
 	.debugfs_init = panthor_debugfs_init,
