@@ -95,7 +95,7 @@ panthor_kernel_bo_create(struct panthor_device *ptdev, struct panthor_vm *vm,
 	bo->flags = bo_flags;
 
 	if (!vm)
-		return 0;
+		return kbo;
 
 	ret = panthor_vm_alloc_va(vm, gpu_va, size, &kbo->va_node);
 	if (ret)
