@@ -666,6 +666,17 @@ bool panthor_vm_has_unhandled_faults(struct panthor_vm *vm)
 }
 
 /**
+ * panthor_vm_is_unusable() - Check if the VM is still usable
+ * @vm: VM to check.
+ *
+ * Return: true if the VM is unusable, false otherwise.
+ */
+bool panthor_vm_is_unusable(struct panthor_vm *vm)
+{
+	return vm->unusable;
+}
+
+/**
  * panthor_vm_active() - Flag a VM as active
  * @VM: VM to flag as active.
  *
