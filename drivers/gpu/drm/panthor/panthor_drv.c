@@ -1228,7 +1228,6 @@ static int panthor_ioctl_vm_get_state(struct drm_device *ddev, void *data,
 	struct panthor_file *pfile = file->driver_priv;
 	struct drm_panthor_vm_get_state *args = data;
 	struct panthor_vm *vm;
-	int ret;
 
 	vm = panthor_vm_pool_get_vm(pfile->vms, args->vm_id);
 	if (!vm)
