@@ -1222,6 +1222,27 @@ static int panthor_ioctl_vm_bind(struct drm_device *ddev, void *data,
 	return ret;
 }
 
+static int panthor_ioctl_vm_get_state(struct drm_device *ddev, void *data,
+				      struct drm_file *file)
+{
+	struct panthor_file *pfile = file->driver_priv;
+	struct drm_panthor_vm_get_state *args = data;
+	struct panthor_vm *vm;
+	int ret;
+
+	vm = panthor_vm_pool_get_vm(pfile->vms, args->vm_id);
+	if (!vm)
+		return -EINVAL;
+
+	if (panthor_vm_is_unusable(vm))
+		args->state = DRM_PANTHOR_VM_STATE_UNUSABLE;
+	else
+		args->state = DRM_PANTHOR_VM_STATE_USABLE;
+
+	panthor_vm_put(vm);
+	return 0;
+}
+
 static int
 panthor_open(struct drm_device *ddev, struct drm_file *file)
 {
