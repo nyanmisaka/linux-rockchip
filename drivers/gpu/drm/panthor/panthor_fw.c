@@ -1330,3 +1330,5 @@ err_unplug_fw:
 	panthor_fw_unplug(ptdev);
 	return ret;
 }
+
+MODULE_FIRMWARE("arm/mali/arch10.8/mali_csffw.bin");
