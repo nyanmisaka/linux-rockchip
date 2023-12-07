@@ -3371,14 +3371,20 @@ int panthor_sched_init(struct panthor_device *ptdev)
 	INIT_WORK(&sched->sync_upd_work, sync_upd_work);
 	INIT_WORK(&sched->fw_events_work, process_fw_events_work);
 
-	drmm_mutex_init(&ptdev->base, &sched->lock);
+	ret = drmm_mutex_init(&ptdev->base, &sched->lock);
+	if (ret)
+		return ret;
+
 	for (prio = PANTHOR_CSG_PRIORITY_COUNT - 1; prio >= 0; prio--) {
 		INIT_LIST_HEAD(&sched->groups.runnable[prio]);
 		INIT_LIST_HEAD(&sched->groups.idle[prio]);
 	}
 	INIT_LIST_HEAD(&sched->groups.waiting);
 
-	drmm_mutex_init(&ptdev->base, &sched->reset.lock);
+	ret = drmm_mutex_init(&ptdev->base, &sched->reset.lock);
+	if (ret)
+		return ret;
+
 	INIT_LIST_HEAD(&sched->reset.stopped_groups);
 
 	/* sched->wq will be used for heap chunk allocation on tiler OOM
