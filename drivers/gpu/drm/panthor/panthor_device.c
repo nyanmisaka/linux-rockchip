@@ -108,13 +108,13 @@ static void panthor_device_reset_work(struct work_struct *work)
 	atomic_set(&ptdev->reset.pending, 0);
 	panthor_sched_post_reset(ptdev);
 
+out_dev_exit:
+	drm_dev_exit(cookie);
+
 	if (ret) {
 		panthor_device_unplug(ptdev);
 		drm_err(&ptdev->base, "Failed to boot MCU after reset, making device unusable.");
 	}
-
-out_dev_exit:
-	drm_dev_exit(cookie);
 }
 
 static bool panthor_device_is_initialized(struct panthor_device *ptdev)
