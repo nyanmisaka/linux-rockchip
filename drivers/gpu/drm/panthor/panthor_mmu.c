@@ -2569,9 +2569,14 @@ int panthor_mmu_init(struct panthor_device *ptdev)
 
 	INIT_LIST_HEAD(&mmu->as.lru_list);
 
-	drmm_mutex_init(&ptdev->base, &mmu->as.slots_lock);
+	ret = drmm_mutex_init(&ptdev->base, &mmu->as.slots_lock);
+	if (ret)
+		return ret;
+
 	INIT_LIST_HEAD(&mmu->vm.list);
-	drmm_mutex_init(&ptdev->base, &mmu->vm.lock);
+	ret = drmm_mutex_init(&ptdev->base, &mmu->vm.lock);
+	if (ret)
+		return ret;
 
 	ptdev->mmu = mmu;
 
