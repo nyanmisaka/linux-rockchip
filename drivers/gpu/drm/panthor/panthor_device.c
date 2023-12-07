@@ -135,7 +135,10 @@ int panthor_device_init(struct panthor_device *ptdev)
 
 	ptdev->coherent = device_get_dma_attr(ptdev->base.dev) == DEV_DMA_COHERENT;
 
-	drmm_mutex_init(&ptdev->base, &ptdev->pm.mmio_lock);
+	ret = drmm_mutex_init(&ptdev->base, &ptdev->pm.mmio_lock);
+	if (ret)
+		return ret;
+
 	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
 	p = alloc_page(GFP_KERNEL | __GFP_ZERO);
 	if (!p)
