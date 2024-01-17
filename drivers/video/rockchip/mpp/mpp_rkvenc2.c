@@ -2288,10 +2288,8 @@ static int rkvenc_attach_ccu(struct device *dev, struct rkvenc_dev *enc)
 		ccu_info = ccu->main_core->iommu_info;
 		cur_info = enc->mpp.iommu_info;
 
-		if (cur_info) {
-			cur_info->domain = ccu_info->domain;
-			cur_info->rw_sem = ccu_info->rw_sem;
-		}
+		cur_info->domain = ccu_info->domain;
+		cur_info->rw_sem = ccu_info->rw_sem;
 		mpp_iommu_attach(cur_info);
 
 		/* increase main core message capacity */
@@ -2469,8 +2467,7 @@ static int rkvenc_core_probe(struct platform_device *pdev)
 	}
 	mpp->session_max_buffers = RKVENC_SESSION_MAX_BUFFERS;
 	enc->hw_info = to_rkvenc_info(mpp->var->hw_info);
-	if (mpp->iommu_info)
-		mpp->iommu_info->hdl = rkvenc2_iommu_fault_handle;
+	mpp->iommu_info->hdl = rkvenc2_iommu_fault_handle;
 	rkvenc_procfs_init(mpp);
 	rkvenc_procfs_ccu_init(mpp);
 
