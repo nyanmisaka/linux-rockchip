@@ -18,6 +18,8 @@
 
 #include "hack/mpp_rkvdec2_link_hack_rk3568.c"
 
+#define WORK_TIMEOUT_MS		(500)
+#define WAIT_TIMEOUT_MS		(2000)
 #define RKVDEC2_LINK_HACK_TASK_FLAG	(0xff)
 
 /* vdpu381 link hw info for rk3588 */
@@ -1190,16 +1192,19 @@ int rkvdec2_link_wait_result(struct mpp_session *session,
 		return -EIO;
 	}
 
-	ret = wait_event_interruptible(mpp_task->wait, task_is_done(mpp_task));
-	if (ret == -ERESTARTSYS)
-		mpp_err("wait task break by signal\n");
+	ret = wait_event_timeout(mpp_task->wait, task_is_done(mpp_task),
+				 msecs_to_jiffies(WAIT_TIMEOUT_MS));
+	if (ret) {
+		ret = rkvdec2_result(mpp, mpp_task, msgs);
 
-	ret = rkvdec2_result(mpp, mpp_task, msgs);
+		mpp_session_pop_done(session, mpp_task);
+	} else {
+		mpp_err("task %d:%d state %lx timeout -> abort\n",
+			session->index, mpp_task->task_id, mpp_task->state);
 
-	mpp_session_pop_done(session, mpp_task);
-	mpp_debug_func(DEBUG_TASK_INFO, "wait done session %d:%d count %d task %d state %lx\n",
-		       session->device_type, session->index, atomic_read(&session->task_count),
-		       mpp_task->task_index, mpp_task->state);
+		atomic_inc(&mpp_task->abort_request);
+		set_bit(TASK_STATE_ABORT, &mpp_task->state);
+	}
 
 	mpp_session_pop_pending(session, mpp_task);
 	return ret;
